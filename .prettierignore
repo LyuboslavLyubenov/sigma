@@ -1,0 +1,10 @@
+node_modules
+pnpm-lock.yaml
+.react-router
+.turbo
+.wrangler
+dist
+build
+coverage
+data
+docs
