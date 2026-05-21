@@ -1,0 +1,588 @@
+<!doctype html>
+<html lang="bg">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Червени флагове — Сигма</title>
+  <link rel="stylesheet" href="assets/styles.css" />
+</head>
+<body>
+  <a class="skip" href="#main">Към съдържанието</a>
+
+  <header class="site-header" role="banner">
+    <div class="site-header-inner">
+      <a class="brand" href="index.html" aria-label="Сигма — начална страница">
+        <span class="brand-mark">Сигма</span>
+        <span class="brand-sub">Платформа за прозрачни възлагания</span>
+      </a>
+      <nav class="site-nav" aria-label="Главна навигация">
+        <a href="index.html">Начало</a>
+        <a href="authority.html">Институции</a>
+        <a href="company.html">Компании</a>
+        <a href="person.html">Лица</a>
+        <a href="#" aria-current="page">Червени флагове</a>
+        <a href="flows.html">Потоци</a>
+        <a href="#">Методология</a>
+      </nav>
+      <form class="site-search" role="search" aria-label="Търсене">
+        <input type="search" placeholder="Търси…" />
+        <button type="submit">Търси</button>
+      </form>
+    </div>
+  </header>
+
+  <div class="crumbs">
+    <div class="crumbs-inner">
+      <a href="index.html">Начало</a><span class="sep">›</span>
+      Червени флагове
+    </div>
+  </div>
+
+  <main id="main">
+
+    <section class="page-header">
+      <p class="kicker">Класиране по сигнали</p>
+      <h1>Червени флагове</h1>
+      <p class="lede">
+        Договори от регистъра на обществените поръчки, при които една или повече характеристики
+        заслужават проверка — единствена оферта, директно възлагане, ръст на стойността,
+        концентрация на изпълнител, споделени собственици. Подредени по съставен резултат от
+        100 точки.
+      </p>
+    </section>
+
+    <div class="callout">
+      <h3>Какво показва това класиране</h3>
+      <p>
+        Червените флагове са <strong>обективни характеристики</strong> на договорите, които
+        корелират с проблеми при други случаи — не са обвинение или преценка за нарушение.
+        Един договор с висок резултат може да бъде напълно законен; един договор с нулев
+        резултат може да бъде проблемен по причини, които данните не показват.
+        Цел на класирането: <em>да насочи вниманието</em>, не да присъжда.
+        <a href="#">Виж пълната методология и точкуването →</a>
+      </p>
+    </div>
+
+    <div class="split">
+      <aside aria-label="Филтри и категории">
+        <h4>Изглед</h4>
+        <ul>
+          <li class="active">Договори · 1 247</li>
+          <li><a href="#" class="muted">Институции · 412</a></li>
+          <li><a href="#" class="muted">Компании · 384</a></li>
+          <li><a href="#" class="muted">Лица · 78</a></li>
+        </ul>
+
+        <div class="filter-group">
+          <h4>Сигнали</h4>
+          <label class="check"><input type="checkbox" checked> Една оферта</label>
+          <label class="check"><input type="checkbox" checked> Без конкурентна процедура</label>
+          <label class="check"><input type="checkbox" checked> Ръст на стойността</label>
+          <label class="check"><input type="checkbox" checked> Чести анекси</label>
+          <label class="check"><input type="checkbox" checked> Концентрация</label>
+          <label class="check"><input type="checkbox" checked> ЕС средства без конкуренция</label>
+          <label class="check"><input type="checkbox" checked> Споделени собственици</label>
+        </div>
+
+        <div class="filter-group">
+          <h4>Сектор</h4>
+          <label class="check"><input type="checkbox" checked> Строителство</label>
+          <label class="check"><input type="checkbox" checked> Храни</label>
+        </div>
+
+        <div class="filter-group">
+          <h4>Година</h4>
+          <label class="check"><input type="checkbox"> 2020</label>
+          <label class="check"><input type="checkbox"> 2021</label>
+          <label class="check"><input type="checkbox" checked> 2022</label>
+          <label class="check"><input type="checkbox" checked> 2023</label>
+          <label class="check"><input type="checkbox" checked> 2024</label>
+        </div>
+
+        <div class="filter-group">
+          <h4>Минимална стойност</h4>
+          <label class="check"><input type="radio" name="min"> 100 хил. лв.</label>
+          <label class="check"><input type="radio" name="min" checked> 1 млн. лв.</label>
+          <label class="check"><input type="radio" name="min"> 10 млн. лв.</label>
+        </div>
+
+        <p class="small muted" style="margin-top:24px;">
+          <a href="#">Свали като CSV (1 247 реда)</a>
+        </p>
+      </aside>
+
+      <div>
+        <p class="muted small" style="margin: 4px 0 18px;">
+          Показани 1 247 договора, които задействат поне един сигнал.
+          Подредени по съставен резултат. Кликни „+" за обяснение защо всеки сигнал е задействан.
+        </p>
+
+        <div style="border-top: 2px solid var(--text);">
+          <div style="display:grid; grid-template-columns: 32px 1fr 200px 140px 80px; gap: 12px; padding: 8px 0; font-size:13px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); font-weight: 700; border-bottom: 1px solid var(--border);">
+            <div></div>
+            <div>Договор / страни</div>
+            <div>Сигнали</div>
+            <div style="text-align:right;">Стойност</div>
+            <div style="text-align:right;">Резултат</div>
+          </div>
+
+          <details class="row" open>
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Доизграждане на АМ „Хемус" — лот 6</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00044-2024-0078 · <a href="authority.html">Агенция „Пътна инфраструктура"</a> → <a href="company.html">ГБС Инфраструктурно строителство АД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Една оферта</span>
+                <span class="flag">Ръст +47%</span>
+                <span class="flag">ЕС</span>
+                <span class="flag">4 анекса</span>
+              </span>
+              <span class="money">605 млн. лв.<span class="sub">подписан: 412</span></span>
+              <span style="text-align:right;"><span class="score">93<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Една оферта</span><br><span class="small muted">+20 точки</span></div>
+                  <div class="why">
+                    В тръжната процедура е подадена само 1 оферта (тази на ГБС). Открита
+                    процедура без реален конкурент.
+                  </div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Ръст на стойността +47%</span><br><span class="small muted">+25 точки (таван)</span></div>
+                  <div class="why">
+                    Подписана стойност 412 млн. лв.; текуща стойност след 4 анекса —
+                    605 млн. лв. Увеличение от 193 млн. лв. (+47%) над прага от 20%.
+                  </div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Чести анекси</span><br><span class="small muted">+15 точки</span></div>
+                  <div class="why">
+                    Регистрирани 4 анекса по договора, при праг 3 за активиране на сигнала.
+                  </div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">ЕС финансиране без реална конкуренция</span><br><span class="small muted">+30 точки (надстройка над „Една оферта")</span></div>
+                  <div class="why">
+                    Договорът е финансиран по ОП „Транспорт и транспортна инфраструктура" с
+                    ЕС средства. Възлагане с единствена оферта при ЕС финансиране е сигнал
+                    от по-висока тежест — подлежи и на одит от ЕС органи.
+                  </div>
+                </div>
+              </div>
+              <p class="small muted" style="margin-bottom:0;">
+                <a href="#">Виж пълния договор и историята на анексите →</a> ·
+                <a href="#">Виж в АОП регистъра →</a>
+              </p>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Реконструкция жп линия София — Драгоман, етап 1</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 02018-2023-0098 · <a href="authority.html">НКЖИ</a> → <a href="company.html">ГБС Инфраструктурно строителство АД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Една оферта</span>
+                <span class="flag">ЕС</span>
+                <span class="flag">Концентрация</span>
+              </span>
+              <span class="money">187 млн. лв.</span>
+              <span style="text-align:right;"><span class="score">85<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Една оферта</span><br><span class="small muted">+20 точки</span></div>
+                  <div class="why">Открита процедура с 1 подадена оферта.</div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">ЕС без конкуренция</span><br><span class="small muted">+30 точки</span></div>
+                  <div class="why">ОП „Транспорт", ЕС финансиране, без реална конкуренция.</div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Концентрация при възложителя</span><br><span class="small muted">+15 точки</span></div>
+                  <div class="why">
+                    ГБС държи 47% от строителните разходи на НКЖИ за 2023 г. — над прага от 40%.
+                  </div>
+                </div>
+              </div>
+              <p class="small muted" style="margin-bottom:0;">
+                <a href="#">Виж пълния договор →</a>
+              </p>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Реконструкция на ул. „Цар Симеон" — Стара Загора</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00064-2023-0142 · <a href="authority.html">Община Стара Загора</a> → <a href="company.html">ГРАДСКА АВТО ОПЛЕМЕТ ЕООД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Споделени собственици</span>
+                <span class="flag">Ръст +18%</span>
+              </span>
+              <span class="money">5,6 млн. лв.<span class="sub">подписан: 4,7</span></span>
+              <span style="text-align:right;"><span class="score">68<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Споделени собственици</span><br><span class="small muted">+40 точки</span></div>
+                  <div class="why">
+                    3 от 4-те подадени оферти за този търг идват от компании, които споделят
+                    собственик чрез <a href="#">един и същ човек</a> (по Търговския регистър).
+                    Конкуренцията в търга е била номинална.
+                  </div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Ръст на стойността +18%</span><br><span class="small muted">+25 точки</span></div>
+                  <div class="why">
+                    Подписана 4,7 млн. лв.; текуща след 2 анекса — 5,6 млн. лв. (+18%).
+                  </div>
+                </div>
+              </div>
+              <p class="small muted" style="margin-bottom:0;">
+                Това е силен сигнал, защото се вижда само през собствеността — на пръв поглед
+                4 различни компании, а реално 1 собственик зад 3 от тях.
+                <a href="#">Виж връзките визуално →</a>
+              </p>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Аварийно укрепване на свлачище — кв. Грамада</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00104-2024-0058 · <a href="authority.html">Община Благоевград</a> → <a href="#">ХИДРОСТРОЙ ЮГ ЕООД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Без процедура</span>
+                <span class="flag">Споделени собственици</span>
+              </span>
+              <span class="money">1,28 млн. лв.</span>
+              <span style="text-align:right;"><span class="score">65<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Без конкурентна процедура</span><br><span class="small muted">+25 точки</span></div>
+                  <div class="why">
+                    „Пряко договаряне" — без обявление или състезание. Законът допуска това
+                    при определени условия (аварийна ситуация); тук обосновката е „спешност".
+                  </div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Споделени собственици (на ниво институция)</span><br><span class="small muted">+25 точки</span></div>
+                  <div class="why">
+                    ХИДРОСТРОЙ ЮГ ЕООД, заедно с 2 други компании от Община Благоевград
+                    (ПИРИН СТРОЙ АД, БАЛКАНСТРОЙ АД), споделят един собственик. През тези 3
+                    компании общината е изплатила 42,9 млн. лв. за периода.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Реконструкция на път II-49 Търговище — Разград</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00044-2023-0212 · <a href="authority.html">АПИ</a> → <a href="#">АВТОМАГИСТРАЛИ — ЧЕРНО МОРЕ АД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Една оферта</span>
+                <span class="flag">ЕС</span>
+              </span>
+              <span class="money">84,3 млн. лв.</span>
+              <span style="text-align:right;"><span class="score">62<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Една оферта</span><br><span class="small muted">+20 точки</span></div>
+                  <div class="why">Открита процедура с 1 оферта.</div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">ЕС без конкуренция</span><br><span class="small muted">+30 точки</span></div>
+                  <div class="why">ЕС финансиране, без реална конкуренция.</div>
+                </div>
+              </div>
+              <p class="small muted" style="margin-bottom:0;">Допълнителен контекст: компанията е спечелила всичките си 41 договора с 1 оферта от АПИ — виж <a href="#">профила</a>.</p>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Реконструкция на ул. „Тодор Александров" — Благоевград</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00104-2024-0072 · <a href="authority.html">Община Благоевград</a> → <a href="#">СТРОЙ-ИНЖЕНЕРИНГ БЛАГОЕВГРАД ЕООД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Една оферта</span>
+                <span class="flag">Ръст +66%</span>
+                <span class="flag">Концентрация</span>
+              </span>
+              <span class="money">7,12 млн. лв.<span class="sub">подписан: 4,30</span></span>
+              <span style="text-align:right;"><span class="score">60<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Една оферта</span><br><span class="small muted">+20 точки</span></div>
+                  <div class="why">Открита процедура с 1 оферта.</div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Ръст +66%</span><br><span class="small muted">+25 точки</span></div>
+                  <div class="why">
+                    Подписан 4,30 млн. лв., текущ 7,12 млн. лв. (+66%, 3 анекса).
+                  </div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Концентрация при възложителя</span><br><span class="small muted">+15 точки</span></div>
+                  <div class="why">
+                    СТРОЙ-ИНЖЕНЕРИНГ БЛАГОЕВГРАД ЕООД печели 31% от строителните разходи на
+                    Община Благоевград за 2020–2024.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Доставка на месо и месни продукти — болница</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00184-2024-0028 · <a href="authority.html">УМБАЛ „Свети Иван Рилски"</a> → <a href="#">МЕСНИ ПРОДУКТИ — БЪЛГАРИЯ ЕООД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Без процедура</span>
+                <span class="flag">Концентрация</span>
+              </span>
+              <span class="money">2,84 млн. лв.</span>
+              <span style="text-align:right;"><span class="score">52<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Без конкурентна процедура</span><br><span class="small muted">+25 точки</span></div>
+                  <div class="why">„Договаряне без обявление" — обосновка: „специфичен ред".</div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Концентрация</span><br><span class="small muted">+15 точки</span></div>
+                  <div class="why">
+                    МЕСНИ ПРОДУКТИ — БЪЛГАРИЯ ЕООД печели 58% от хранителните доставки на тази
+                    болница за 2024 г.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Изграждане на спортна зала — Видин</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00159-2023-0014 · <a href="authority.html">Министерство на младежта и спорта</a> → <a href="#">БАЛКАН КОМФОРТ Д.М.С. ООД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Без процедура</span>
+              </span>
+              <span class="money">3,2 млн. лв.</span>
+              <span style="text-align:right;"><span class="score">48<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Без конкурентна процедура</span><br><span class="small muted">+25 точки</span></div>
+                  <div class="why">
+                    „Пряко договаряне" — обосновка не е публикувана в регистъра. БАЛКАН КОМФОРТ
+                    Д.М.С. ООД е спечелила 14 от 17 договора с ММС с този тип процедура.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Поддръжка на пътища — район Югоизток</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00044-2024-0142 · <a href="authority.html">АПИ</a> → <a href="company.html">ГБС Инфраструктурно строителство АД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Една оферта</span>
+                <span class="flag">Концентрация</span>
+              </span>
+              <span class="money">42,8 млн. лв.</span>
+              <span style="text-align:right;"><span class="score">46<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Една оферта</span><br><span class="small muted">+20 точки</span></div>
+                  <div class="why">1 оферта при открита процедура.</div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Концентрация</span><br><span class="small muted">+15 точки</span></div>
+                  <div class="why">ГБС държи 45% от строителните разходи на АПИ за 2024.</div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+          <details class="row">
+            <summary>
+              <span class="expander"></span>
+              <span>
+                <strong>Сметосъбиране и сметоизвозване — 2024–2027</strong>
+                <span class="small muted" style="display:block; margin-top:2px;">
+                  UNP 00081-2024-0038 · <a href="authority.html">Община Кърджали</a> → <a href="#">САНИТАРИЯ — РОДОПИ ЕООД</a>
+                </span>
+              </span>
+              <span>
+                <span class="flag">Една оферта</span>
+                <span class="flag">Концентрация</span>
+              </span>
+              <span class="money">28,5 млн. лв.</span>
+              <span style="text-align:right;"><span class="score">42<span class="of">/100</span></span></span>
+            </summary>
+            <div class="body">
+              <h4>Защо този договор е във върха на класирането</h4>
+              <div class="signals">
+                <div class="signal">
+                  <div class="name"><span class="flag">Една оферта</span><br><span class="small muted">+20 точки</span></div>
+                  <div class="why">Открита процедура с 1 оферта.</div>
+                </div>
+                <div class="signal">
+                  <div class="name"><span class="flag">Концентрация</span><br><span class="small muted">+15 точки</span></div>
+                  <div class="why">
+                    САНИТАРИЯ — РОДОПИ ЕООД е спечелила 3 от 3-те договора за смет на общината
+                    за последните 9 години.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </details>
+
+        </div>
+
+        <div class="paging">
+          <span>Показани 1–10 от 1 247</span>
+          <div class="ctrl">
+            <a href="#" aria-disabled="true">‹ Предишни</a>
+            <a href="#">Следващи ›</a>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <section class="section" aria-labelledby="signal-key">
+      <h2 id="signal-key">Какво означава всеки сигнал</h2>
+      <p class="section-hint">Кратко обяснение на седемте сигнала. <a href="#">Пълна методология →</a></p>
+
+      <div class="two-col">
+        <div>
+          <div class="callout">
+            <h3>Една оферта</h3>
+            <p>В тръжната процедура е подадена само 1 оферта. Не доказва манипулация — пазарите за специфично строителство или местни хранителни доставки могат да са тесни. Активира внимание.</p>
+          </div>
+          <div class="callout">
+            <h3>Без конкурентна процедура</h3>
+            <p>Пряко договаряне или договаряне без обявление. Законът ги допуска при определени условия (спешност, единствен доставчик, технически причини). Систематична употреба или употреба за обикновени покупки заслужава проверка.</p>
+          </div>
+          <div class="callout">
+            <h3>Ръст на стойността</h3>
+            <p>Текущата стойност (след анекси) надхвърля подписаната с над 20%. Известна корупционна схема е „печели ниско, печели от анекси" — но строителството има и легитимни драйвери на ръст.</p>
+          </div>
+          <div class="callout">
+            <h3>Чести анекси</h3>
+            <p>3 или повече анекса по един договор. Често съпровожда сигнала „Ръст".</p>
+          </div>
+        </div>
+        <div>
+          <div class="callout">
+            <h3>Концентрация</h3>
+            <p>Един изпълнител печели над 40% от поръчките на една институция за една година (при поне 5 договора). Може да е рамков договор; може и да е „заловен" възложител.</p>
+          </div>
+          <div class="callout">
+            <h3>ЕС средства без конкуренция</h3>
+            <p>Договор с ЕС финансиране, спечелен с 1 оферта или без конкурентна процедура. По-висока тежест, защото подлежи на ЕС одит.</p>
+          </div>
+          <div class="callout warning">
+            <h3>Споделени собственици</h3>
+            <p>Две или повече компании, които споделят собственик (от Търговския регистър), участват в един търг — или печелят от един възложител. Един от най-силните сигнали за фалшива конкуренция, но и един от най-зависимите от качеството на данните за собственост.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+  </main>
+
+  <footer class="site-footer">
+    <div class="site-footer-inner">
+      <div>
+        <h4>Сигма</h4>
+        <p>Платформа за прозрачни възлагания.</p>
+        <p class="freshness">Данни към 31 декември 2024 г.</p>
+      </div>
+      <div>
+        <h4>Източници</h4>
+        <p>
+          <a href="#">АОП регистър</a><br>
+          <a href="#">Търговски регистър</a><br>
+          <a href="#">Лицензи</a>
+        </p>
+      </div>
+      <div>
+        <h4>Платформа</h4>
+        <p>
+          <a href="#">Методология</a><br>
+          <a href="#">За Сигма</a><br>
+          <a href="#">Изходен код</a>
+        </p>
+      </div>
+    </div>
+  </footer>
+</body>
+</html>
