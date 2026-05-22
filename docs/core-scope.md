@@ -51,20 +51,20 @@ re-migrated when these resume — they just have no UI or scoring in the core.
   [KICKOFF](design/KICKOFF.md)). The `bidder_members` table, the `contract_participants`
   view and the `eik_normalized` join key all remain in the schema, unused by the core UI.
   Money is attributed with **lens #1 only**: `SUM(contracts.amount_eur)` grouped by `bidder_id`
-  (a consortium is credited as the single awarded entity). The member-level lens #2
-  activates with this layer — see the "Which sum to use" table under
-  [data-ingestion.md → Consortia](data-ingestion.md#consortia-обединения--дззд).
+  (a consortium is credited as the single awarded entity). The member-level lens #2 — splitting each
+  contract across consortium members — activates with this layer via the `contract_participants` view
+  (see [0000_init.sql](../packages/db/migrations/0000_init.sql)).
 - **Red-flag / signals layer** — the [signal catalog](../mocks/docs/design/03-red-flag-catalog.md),
-  composite scoring and the `/червени-флагове` leaderboard. The `risk_scores` table and the
-  `price_benchmark` view stay; nothing in the core surfaces them.
+  composite scoring and the `/червени-флагове` leaderboard. The `risk_scores` table stays (empty); the
+  price-benchmark view was dropped with the retired xlsx and will be rebuilt on the domain data when
+  signals resume.
 
 ## Surfaces & data mapping
 
-Source tables are the domain tables in [0000_init.sql](../packages/db/migrations/0000_init.sql)
-+ [0006_domain_v2.sql](../packages/db/migrations/0006_domain_v2.sql). Fields once marked **†**
-were "not in the domain yet" under the xlsx bootstrap; **normalize v2 now propagates almost all of
-them** from the admin export — see [Data dependencies](#data-dependencies-this-scope-needs) for the
-few that remain (sector + a couple of minor contract fields).
+Source tables are the domain tables in [0000_init.sql](../packages/db/migrations/0000_init.sql).
+Fields once marked **†** were "not in the domain yet" under the xlsx bootstrap; **normalize now
+propagates almost all of them** from the admin export — see [Data dependencies](#data-dependencies-this-scope-needs)
+for the few that remain (sector + a couple of minor contract fields).
 
 ### Authority profile (`/институции/[slug]`)
 
@@ -176,6 +176,5 @@ screen, no write side, no public API (bulk CSV export per filtered view is in sc
 - Full design (the superset this carves from): [IA](../mocks/docs/design/01-information-architecture.md),
   [screens](../mocks/docs/design/02-screens.md).
 - Pipeline feeding the domain tables: [etl-pipeline.md](etl-pipeline.md).
-- Schema: [0000_init.sql](../packages/db/migrations/0000_init.sql) + [0006_domain_v2.sql](../packages/db/migrations/0006_domain_v2.sql) (domain),
-  [0003_egov_staging.sql](../packages/db/migrations/0003_egov_staging.sql) / [0005_admin_rich.sql](../packages/db/migrations/0005_admin_rich.sql) (staging),
-  [0002_consortia.sql](../packages/db/migrations/0002_consortia.sql) (parked owner hooks + `contract_participants`).
+- Schema (domain + staging + parked owner hooks + `contract_participants`, one file):
+  [0000_init.sql](../packages/db/migrations/0000_init.sql).

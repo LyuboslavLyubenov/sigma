@@ -16,7 +16,7 @@ Iteration 1 is a **public, read-only** reporting & visualization layer over ~129
 in Cloudflare D1, for citizens / journalists / NGOs, with a Bulgarian UI. The web app was first
 scaffolded on **SvelteKit**; this ADR revisits that. The server runtime is **Cloudflare Workers**
 reading D1. The data arrives as **periodic bulk loads**
-(`scripts/load-aop.mjs`), not a live feed; there is **no public write path and no authentication**
+(`scripts/import.mjs`), not a live feed; there is **no public write path and no authentication**
 in this iteration.
 
 Three questions drove this decision:
@@ -72,7 +72,7 @@ data is public by design; its *trustworthiness* and *uptime* are the product.
 
 **Iteration 1 controls:**
 
-- **Keep the read path read-only.** Ingestion is offline (`load-aop.mjs`); there is no public write
+- **Keep the read path read-only.** Ingestion is offline (`scripts/import.mjs`); there is no public write
   endpoint. Preserve this — no public mutation, no admin in iteration 1.
 - **Edge model + caching as DDoS absorption.** Cloudflare absorbs L3/4; cached HTML means attack /
   scrape traffic hits cache, not D1.

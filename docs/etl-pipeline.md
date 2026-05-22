@@ -3,9 +3,9 @@
 > **Status: admin ЦАИС ЕОП export loaded AND normalized into the domain locally (May 2026).**
 > The pipeline is now **two sources**: the **admin export** as the authoritative 2020–2026 base,
 > and the **OCDS JSON feed** ([data.egov.bg](https://data.egov.bg)) as the go-forward 2026+ delta.
-> The xlsx bootstrap ([data-ingestion.md](data-ingestion.md)) and the portal contracts CSV are
-> **retired** (the CSV kept only as the coverage-comparison baseline). What remains: the **remote
-> D1 push** and **OCDS scheduling**. Feeds the core explorer ([core-scope.md](core-scope.md)).
+> The xlsx bootstrap and the portal contracts CSV are **retired** (the CSV kept only as the
+> coverage-comparison baseline). What remains: the **remote D1 push** and **OCDS scheduling**.
+> Feeds the core explorer ([core-scope.md](core-scope.md)).
 >
 > Design prose in English; user-facing copy in Bulgarian.
 
@@ -17,22 +17,33 @@ A repeatable, idempotent ETL that loads the **authoritative admin ЦАИС ЕО�
 pass — the admin export carries the procedure-level fields per row, so `normalize` propagates
 them directly (no separate enrichment join).
 
+## Schema (one file, not a chain)
+
+Migrations exist to evolve a schema **without losing existing data**. Sigma is pre-production with
+no deployed data — every import runs against a **fresh** database — so an incremental migration
+chain would be pure overhead (and accumulates churn: a column added then renamed, retired tables,
+vestigial slots). The schema therefore lives in a **single [`0000_init.sql`](../packages/db/migrations/0000_init.sql)**
+that defines the final shape directly. We still use the migrations *directory* (it is how `wrangler`
+applies schema to D1, local and remote); we re-introduce incremental migrations the first time there
+is deployed data that cannot be dropped.
+
 ## Current state — implemented (May 2026)
 
 The admin export is **loaded into staging AND normalized into the domain** in the local D1
 (`sigma`). The earlier portal-CSV/xlsx ingest is superseded; see [Source history](#source-history)
 for how we got here and what each retired loader still covers.
 
-**Scripts + migrations (committed unless noted):**
+**Schema + scripts.** One command — `pnpm import` ([`scripts/import.mjs`](../scripts/import.mjs)) — runs
+the whole pipeline; `--reset` rebuilds from a fresh DB, `--remote` targets Cloudflare.
 
-- [`migrations/0003_egov_staging.sql`](../packages/db/migrations/0003_egov_staging.sql) — `raw_egov_contracts` (register fields + procedure-level slots + `needs_enrichment`).
-- [`migrations/0004_egov_amendments.sql`](../packages/db/migrations/0004_egov_amendments.sql) — `raw_egov_amendments` + an `annex_count` column on contracts.
-- [`migrations/0005_admin_rich.sql`](../packages/db/migrations/0005_admin_rich.sql) — rich admin columns on `raw_egov_contracts` (cpv_description, authority_type, awarded_to_group, lot_id, …) + the lot-grained `raw_egov_tenders` table.
-- [`migrations/0006_domain_v2.sql`](../packages/db/migrations/0006_domain_v2.sql) — promotes the rich fields into the **domain** (authority `type`; tender `cpv_description`/`contract_kind`/`num_lots`; contract `contract_number`/`signing_value`/`current_value`/`annex_count`/`eu_funded`/`bids_received`/`contract_kind`/`awarded_to_group`).
-- [`scripts/load-admin.mjs`](../scripts/load-admin.mjs) — the admin export loader (Contracts / Tenders / Annexes, 2020–2026).
-- [`scripts/load-ocds.mjs`](../scripts/load-ocds.mjs) — OCDS JSON (2026+); emits contracts **and** amendments.
+- [`migrations/0000_init.sql`](../packages/db/migrations/0000_init.sql) — the **whole schema in one file**
+  (domain + `raw_egov_*` staging + `fx_rates` + the `contract_participants` view). Pre-production and
+  fresh-start, so a single schema file, not an incremental migration chain — see [Schema](#schema-one-file-not-a-chain).
+- [`scripts/load-admin.mjs`](../scripts/load-admin.mjs) — admin export loader (Contracts / Tenders / Annexes, 2020–2026) → `raw_egov_*` staging.
 - [`scripts/derive-amendments.sql`](../scripts/derive-amendments.sql) — rolls `current_value` + `annex_count` onto contracts.
-- [`scripts/normalize-egov.sql`](../scripts/normalize-egov.sql) — **normalize v2**: full rebuild of the domain from the admin staging.
+- [`scripts/load-fx.mjs`](../scripts/load-fx.mjs) — ECB signing-date rates for foreign currencies → `fx_rates`.
+- [`scripts/normalize-egov.sql`](../scripts/normalize-egov.sql) — full rebuild of the domain from staging (cleaning, `value_flag`, canonical EUR).
+- [`scripts/load-ocds.mjs`](../scripts/load-ocds.mjs) — the **separate** go-forward OCDS 2026+ delta (run after, with dedup).
 
 **Loaded into local D1 — staging (`source LIKE 'admin:%'`):**
 
@@ -59,8 +70,9 @@ Currency is kept **per row** on `amount` (BGN pre-2026, EUR from 2026, 49 foreig
 `apps/api/.wrangler/state/v3/d1/` (miniflare SQLite, via `wrangler … --local`). The admin export
 (`data/Open_data_resources.zip`) and the generated load SQL (`data/*-load.sql`) sit in `data/`,
 which is **gitignored**. **Nothing is on the remote D1 yet** — `database_id` is still the `0000…`
-placeholder; a remote push needs Cloudflare auth (`pnpm bootstrap:apply`, then the loaders +
-normalize with `--remote`).
+placeholder. A remote import needs Cloudflare auth: `wrangler login` → `pnpm bootstrap:apply`
+(creates the D1) → put the printed `database_id` into `apps/api/wrangler.toml` →
+`node scripts/import.mjs --remote`.
 
 **Known deliberate gap — the РОП register.** The admin export is **ЦАИС-ЕОП only**, so it omits
 the legacy РОП (Регистър на обществените поръчки) contracts — ~28k thin pre-ЦАИС rows, mostly
@@ -86,8 +98,8 @@ Display in лева is `amount_eur × 1.95583` (IA editorial principle #1). This
 
 The admin register carries a small number of **source** data-entry errors. They were investigated
 (May 2026) and are handled in `normalize-egov.sql` **non-destructively** — staging stays raw; the
-verdict (`value_flag`) and the clean amount (`amount_eur`) are derived columns. See
-[0007_data_quality.sql](../packages/db/migrations/0007_data_quality.sql).
+verdict (`value_flag`) and the clean amount (`amount_eur`) are derived columns (see the `contracts`
+table in [0000_init.sql](../packages/db/migrations/0000_init.sql)).
 
 - **Value errors (~213 contracts, 0.12 % of rows but ~12 % of the naive total).** A signed or amended
   value ≥100× the procurement's estimate. Raw-cell inspection shows a **dropped decimal comma at
@@ -129,9 +141,9 @@ tender** at normalize time, so every contract has a parent regardless of source.
 
 The pipeline reached the admin export through two now-retired ingests:
 
-- **xlsx bootstrap** ([data-ingestion.md](data-ingestion.md)) — two sector workbooks (~129k rows, all
-  EUR) into `raw_aop_contracts`. Thin and EUR-only; **retired** (`raw_aop_contracts` is empty, the
-  domain is rebuilt from the admin export).
+- **xlsx bootstrap** — two sector workbooks (~129k rows, all EUR) into a `raw_aop_contracts` staging
+  table. Thin and EUR-only; **fully retired** — the table, its loader (`load-aop.mjs`) and
+  `normalize-aop.sql` have been removed; the domain is rebuilt from the admin export.
 - **Portal contracts/annexes CSV** (`load-egov.mjs` / `load-annexes.mjs`, data.egov.bg org `502`) —
   the public "Договори и изменения" register, 2016–2023, **broader** (all sectors, incl. РОП) but
   **thinner** per row (no procedure type / CPV / estimated value; `needs_enrichment = 1`). Used to
@@ -252,11 +264,5 @@ delta on cron / a thin `apps/etl` Worker).
 ## Cross-references
 
 - What the ingested data feeds: [core-scope.md](core-scope.md).
-- The retired xlsx bootstrap (historical): [data-ingestion.md](data-ingestion.md).
-- Domain schema: [0000_init.sql](../packages/db/migrations/0000_init.sql) +
-  [0006_domain_v2.sql](../packages/db/migrations/0006_domain_v2.sql) (rich-field promotion).
-- Staging schema: [0003_egov_staging.sql](../packages/db/migrations/0003_egov_staging.sql),
-  [0004_egov_amendments.sql](../packages/db/migrations/0004_egov_amendments.sql),
-  [0005_admin_rich.sql](../packages/db/migrations/0005_admin_rich.sql).
-- Transform: [normalize-egov.sql](../scripts/normalize-egov.sql) (current),
-  [normalize-aop.sql](../scripts/normalize-aop.sql) (retired xlsx path).
+- Schema (domain + staging + reference + view, one file): [0000_init.sql](../packages/db/migrations/0000_init.sql).
+- Orchestrator: [import.mjs](../scripts/import.mjs) (`pnpm import`). Transform: [normalize-egov.sql](../scripts/normalize-egov.sql).
