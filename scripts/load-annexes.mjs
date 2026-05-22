@@ -30,29 +30,33 @@ const AOP_ORG_ID = 502;
 const MAX_BATCH_BYTES = 90_000;
 const MAX_BATCH_ROWS = 500;
 
+// [field, [header aliases], kind] — matched case-insensitively to cover both the ЦАИС
+// ЕОП and older РОП annexes schemas (e.g. УНП vs "Уникален номер на поръчката",
+// ДОГОВОР НОМЕР vs "Номер на договор", uppercased variants). First matching alias wins.
+const norm = (s) => String(s).trim().toLowerCase().replace(/\s+/g, ' ');
 const FIELDS = [
-  ['seq_no', 'Пореден номер', 'text'],
-  ['document_number', 'Номер на документ', 'text'],
-  ['contract_number', 'Номер на договор', 'text'],
-  ['contract_date', 'Дата на договор', 'date'],
-  ['published_at', 'Публикуван на', 'date'],
-  ['unp', 'Уникален номер на поръчката', 'text'],
-  ['authority_eik', 'ЕИК на възложителя', 'text'],
-  ['authority_name', 'Възложител', 'text'],
-  ['procurement_subject', 'Предмет на поръчката', 'text'],
-  ['contract_kind', 'Обект на поръчката', 'text'],
-  ['eu_funded', 'EU финансиране', 'bool'],
-  ['contract_subject', 'Предмет на договора', 'text'],
-  ['contractor_eik', 'ЕИК на изпълнителя', 'text'],
-  ['contractor_name', 'Изпълнител', 'text'],
-  ['value_before', 'Стойност преди изменението', 'real'],
-  ['value_after', 'Стойност след изменението', 'real'],
-  ['value_delta', 'Изменение на стойността', 'real'],
-  ['currency', 'Валута', 'text'],
-  ['description', 'Описание на измененията', 'text'],
-  ['reason', 'Причини за изменение', 'text'],
-  ['circumstances', 'Обстоятелства', 'text'],
-  ['sme', 'Малко или средно предприятие (МСП)', 'text'],
+  ['seq_no', ['Пореден номер'], 'text'],
+  ['document_number', ['Номер на документ', 'ID на документ'], 'text'],
+  ['contract_number', ['Номер на договор', 'ДОГОВОР НОМЕР'], 'text'],
+  ['contract_date', ['Дата на договор'], 'date'],
+  ['published_at', ['Публикуван на'], 'date'],
+  ['unp', ['Уникален номер на поръчката', 'УНП'], 'text'],
+  ['authority_eik', ['ЕИК на възложителя'], 'text'],
+  ['authority_name', ['Възложител'], 'text'],
+  ['procurement_subject', ['Предмет на поръчката'], 'text'],
+  ['contract_kind', ['Обект на поръчката', 'Обект'], 'text'],
+  ['eu_funded', ['EU финансиране'], 'bool'],
+  ['contract_subject', ['Предмет на договора'], 'text'],
+  ['contractor_eik', ['ЕИК на изпълнителя'], 'text'],
+  ['contractor_name', ['Изпълнител'], 'text'],
+  ['value_before', ['Стойност преди изменението'], 'real'],
+  ['value_after', ['Стойност след изменението'], 'real'],
+  ['value_delta', ['Изменение на стойността'], 'real'],
+  ['currency', ['Валута'], 'text'],
+  ['description', ['Описание на измененията'], 'text'],
+  ['reason', ['Причини за изменение'], 'text'],
+  ['circumstances', ['Обстоятелства'], 'text'],
+  ['sme', ['Малко или средно предприятие (МСП)'], 'text'],
 ];
 const META_COLS = ['source', 'dataset_uri', 'resource_uri', 'dataset_year', 'dataset_variant', 'fetched_at'];
 const INSERT_COLS = [...META_COLS, ...FIELDS.map(([f]) => f)];
@@ -201,7 +205,7 @@ async function main() {
       continue;
     }
     const pos = {};
-    rows[0].forEach((h, i) => (pos[String(h).trim()] = i));
+    rows[0].forEach((h, i) => (pos[norm(h)] = i));
     const source = `egov:annexes:${ds.year}:${ds.variant}`;
     const meta = [source, ds.uri, res.uri, ds.year, ds.variant, fetchedAt];
     const metaLiteral = META_COLS.map((_, i) =>
@@ -222,8 +226,15 @@ async function main() {
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
       const vals = [...metaLiteral];
-      for (const [, headerName, kind] of FIELDS) {
-        const i = pos[headerName];
+      for (const [, aliases, kind] of FIELDS) {
+        let i;
+        for (const a of aliases) {
+          const p = pos[norm(a)];
+          if (p !== undefined) {
+            i = p;
+            break;
+          }
+        }
         vals.push(sqlLiteral(kind, i === undefined ? null : coerce(kind, row[i])));
       }
       const tuple = `(${vals.join(',')})`;

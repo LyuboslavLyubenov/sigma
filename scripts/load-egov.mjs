@@ -37,28 +37,31 @@ const AOP_ORG_ID = 502;
 const MAX_BATCH_BYTES = 90_000;
 const MAX_BATCH_ROWS = 500;
 
-// Mapped columns: [staging field, Bulgarian header, coercion kind]. Anything not
-// listed is ignored; any listed header missing from a file yields NULL.
+// Mapped columns: [staging field, [header aliases], coercion kind]. Headers are matched
+// case-insensitively, so BOTH АОП schemas are covered: the ЦАИС ЕОП names and the older
+// РОП names (e.g. УНП vs "Уникален номер на поръчката", ДОГОВОР НОМЕР vs "Номер на договор",
+// and uppercased variants). First matching alias wins; an unmatched field yields NULL.
+const norm = (s) => String(s).trim().toLowerCase().replace(/\s+/g, ' ');
 const FIELDS = [
-  ['seq_no', 'Пореден номер', 'text'],
-  ['document_number', 'Номер на документ', 'text'],
-  ['contract_number', 'Номер на договор', 'text'],
-  ['contract_date', 'Дата на договор', 'date'],
-  ['published_at', 'Публикуван на', 'date'],
-  ['unp', 'Уникален номер на поръчката', 'text'],
-  ['authority_eik', 'ЕИК на възложителя', 'text'],
-  ['authority_name', 'Възложител', 'text'],
-  ['procurement_subject', 'Предмет на поръчката', 'text'],
-  ['contract_kind', 'Обект на поръчката', 'text'],
-  ['eu_funded', 'EU финансиране', 'bool'],
-  ['bids_received', 'Брой оферти', 'int'],
-  ['contract_subject', 'Предмет на договора', 'text'],
-  ['contractor_eik', 'ЕИК на изпълнителя', 'text'],
-  ['contractor_name', 'Изпълнител', 'text'],
-  ['signing_value', 'Стойност при сключване', 'real'],
-  ['currency', 'Валута', 'text'],
-  ['vat', 'ДДС', 'text'],
-  ['sme', 'Малко или средно предприятие (МСП)', 'text'],
+  ['seq_no', ['Пореден номер'], 'text'],
+  ['document_number', ['Номер на документ', 'ID на документ'], 'text'],
+  ['contract_number', ['Номер на договор', 'ДОГОВОР НОМЕР'], 'text'],
+  ['contract_date', ['Дата на договор', 'ДОГОВОР ДАТА'], 'date'],
+  ['published_at', ['Публикуван на'], 'date'],
+  ['unp', ['Уникален номер на поръчката', 'УНП'], 'text'],
+  ['authority_eik', ['ЕИК на възложителя'], 'text'],
+  ['authority_name', ['Възложител'], 'text'],
+  ['procurement_subject', ['Предмет на поръчката'], 'text'],
+  ['contract_kind', ['Обект на поръчката', 'Обект'], 'text'],
+  ['eu_funded', ['EU финансиране'], 'bool'],
+  ['bids_received', ['Брой оферти'], 'int'],
+  ['contract_subject', ['Предмет на договора'], 'text'],
+  ['contractor_eik', ['ЕИК на изпълнителя'], 'text'],
+  ['contractor_name', ['Изпълнител'], 'text'],
+  ['signing_value', ['Стойност при сключване'], 'real'],
+  ['currency', ['Валута'], 'text'],
+  ['vat', ['ДДС'], 'text'],
+  ['sme', ['Малко или средно предприятие (МСП)'], 'text'],
 ];
 const META_COLS = [
   'source',
@@ -247,8 +250,8 @@ async function main() {
       continue;
     }
     const head = rows[0].map((h) => String(h).trim());
-    const pos = {}; // header name -> column index
-    head.forEach((h, i) => (pos[h] = i));
+    const pos = {}; // normalised header name -> column index
+    head.forEach((h, i) => (pos[norm(h)] = i));
 
     const source = `egov:contracts:${ds.year}:${ds.variant}`;
     const meta = [source, ds.uri, res.uri, ds.year, ds.variant, fetchedAt];
@@ -271,8 +274,15 @@ async function main() {
     for (let r = 1; r < rows.length; r++) {
       const row = rows[r];
       const vals = [...metaLiteral];
-      for (const [, headerName, kind] of FIELDS) {
-        const i = pos[headerName];
+      for (const [, aliases, kind] of FIELDS) {
+        let i;
+        for (const a of aliases) {
+          const p = pos[norm(a)];
+          if (p !== undefined) {
+            i = p;
+            break;
+          }
+        }
         vals.push(sqlLiteral(kind, i === undefined ? null : coerce(kind, row[i])));
       }
       vals.push('1'); // needs_enrichment
