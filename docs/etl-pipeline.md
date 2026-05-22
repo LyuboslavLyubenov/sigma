@@ -1,88 +1,182 @@
-# ETL pipeline — multi-source ingestion (design)
+# ETL pipeline — multi-source ingestion
 
-> **Status: design, not built.** Decided 2026-05-22. The forward plan for moving from
-> one-shot Excel loads to a repeatable, refreshable ETL pulling the АОП open data from
-> [data.egov.bg](https://data.egov.bg). It supersedes the single-source bootstrap in
-> [data-ingestion.md](data-ingestion.md) (which stays as the xlsx-adapter reference).
-> Lands in the same domain tables the core explorer reads ([core-scope.md](core-scope.md)).
+> **Status: admin ЦАИС ЕОП export loaded AND normalized into the domain locally (May 2026).**
+> The pipeline is now **two sources**: the **admin export** as the authoritative 2020–2026 base,
+> and the **OCDS JSON feed** ([data.egov.bg](https://data.egov.bg)) as the go-forward 2026+ delta.
+> The xlsx bootstrap ([data-ingestion.md](data-ingestion.md)) and the portal contracts CSV are
+> **retired** (the CSV kept only as the coverage-comparison baseline). What remains: the **remote
+> D1 push** and **OCDS scheduling**. Feeds the core explorer ([core-scope.md](core-scope.md)).
 >
 > Design prose in English; user-facing copy in Bulgarian.
 
 ## Goal
 
-Replace the manually-provided workbooks with an ETL that **backfills** the historical АОП data
-(2007–2025 CSV) **once** and then **stays current from the OCDS feed** (the rich 2026+ JSON),
-is re-runnable and idempotent throughout, and **closes the
+A repeatable, idempotent ETL that loads the **authoritative admin ЦАИС ЕОП export** for 2020–2026
+**once**, then **stays current from the OCDS feed** (the rich 2026+ JSON), and **closes the
 [core-scope](core-scope.md#data-dependencies-this-scope-needs) propagation gaps** in the same
-pass — because the new staging carries those fields anyway.
+pass — the admin export carries the procedure-level fields per row, so `normalize` propagates
+them directly (no separate enrichment join).
 
-## Sources (data.egov.bg — АОП org `e9a95e08-7759-497a-a478-55f331d59447`)
+## Current state — implemented (May 2026)
 
-~27 datasets; 18 CSV / 9 JSON; CC0 / CC-BY. Both pre-ЦАИС РОП and ЦАИС ЕОП data.
+The admin export is **loaded into staging AND normalized into the domain** in the local D1
+(`sigma`). The earlier portal-CSV/xlsx ingest is superseded; see [Source history](#source-history)
+for how we got here and what each retired loader still covers.
 
-| Source | What it carries | Period | Format | Role here |
+**Scripts + migrations (committed unless noted):**
+
+- [`migrations/0003_egov_staging.sql`](../packages/db/migrations/0003_egov_staging.sql) — `raw_egov_contracts` (register fields + procedure-level slots + `needs_enrichment`).
+- [`migrations/0004_egov_amendments.sql`](../packages/db/migrations/0004_egov_amendments.sql) — `raw_egov_amendments` + an `annex_count` column on contracts.
+- [`migrations/0005_admin_rich.sql`](../packages/db/migrations/0005_admin_rich.sql) — rich admin columns on `raw_egov_contracts` (cpv_description, authority_type, awarded_to_group, lot_id, …) + the lot-grained `raw_egov_tenders` table.
+- [`migrations/0006_domain_v2.sql`](../packages/db/migrations/0006_domain_v2.sql) — promotes the rich fields into the **domain** (authority `type`; tender `cpv_description`/`contract_kind`/`num_lots`; contract `contract_number`/`signing_value`/`current_value`/`annex_count`/`eu_funded`/`bids_received`/`contract_kind`/`awarded_to_group`).
+- [`scripts/load-admin.mjs`](../scripts/load-admin.mjs) — the admin export loader (Contracts / Tenders / Annexes, 2020–2026).
+- [`scripts/load-ocds.mjs`](../scripts/load-ocds.mjs) — OCDS JSON (2026+); emits contracts **and** amendments.
+- [`scripts/derive-amendments.sql`](../scripts/derive-amendments.sql) — rolls `current_value` + `annex_count` onto contracts.
+- [`scripts/normalize-egov.sql`](../scripts/normalize-egov.sql) — **normalize v2**: full rebuild of the domain from the admin staging.
+
+**Loaded into local D1 — staging (`source LIKE 'admin:%'`):**
+
+| Table | Rows | Contents |
+| --- | --- | --- |
+| `raw_egov_contracts` | 190,428 | admin contracts, 2020–2026 (rich per row, `needs_enrichment = 0`) |
+| `raw_egov_tenders` | 323,290 | admin procedures, lot-grained (one header row + one row per lot, per УНП) |
+| `raw_egov_amendments` | 24,744 | admin annexes (изменения), 2020–2026 |
+
+**Normalized into the domain (`scripts/normalize-egov.sql`):**
+
+| Domain table | Rows | Notes |
+| --- | --- | --- |
+| `authorities` | 4,868 | deduped on ЕИК; 4,867 carry a `type` (Вид на възложителя) |
+| `tenders` | 139,718 | 128,070 from the tenders-export header rows + 11,648 **synthetic** for contract-only УНП |
+| `lots` | 195,220 | one per lot row |
+| `bidders` | 16,671 | deduped on contractor ЕИК; 12,923 valid 9/13-digit ЕИК; **3,660 consortia** (name-based) |
+| `contracts` | 189,588 | 190,428 admin rows − 840 with no contractor; **17,470 amended**; 4,455 awarded to a group |
+
+Money totals: **≈ 98.4 bn BGN + 6.67 bn EUR** (plus a handful of foreign-currency contracts). Currency
+is kept **per row** (BGN pre-2026, EUR from 2026) — see [Currency](#currency-not-one-unit).
+
+**Where it's stored.** The local Cloudflare D1 database `sigma`, on disk under
+`apps/api/.wrangler/state/v3/d1/` (miniflare SQLite, via `wrangler … --local`). The admin export
+(`data/Open_data_resources.zip`) and the generated load SQL (`data/*-load.sql`) sit in `data/`,
+which is **gitignored**. **Nothing is on the remote D1 yet** — `database_id` is still the `0000…`
+placeholder; a remote push needs Cloudflare auth (`pnpm bootstrap:apply`, then the loaders +
+normalize with `--remote`).
+
+**Known deliberate gap — the РОП register.** The admin export is **ЦАИС-ЕОП only**, so it omits
+the legacy РОП (Регистър на обществените поръчки) contracts — ~28k thin pre-ЦАИС rows, mostly
+2020 (≈20k), tailing off through 2023. Coverage of the ЦАИС era is otherwise complete (99.98 % vs
+the open data, values matching 99.98 %). We chose **admin-only** and do **not** backfill РОП; if
+full pre-2020 coverage is ever needed, the retired portal CSV loader can add those rows as thin
+(procedure-less) contracts.
+
+## Currency (not one unit)
+
+Unlike the xlsx (all EUR), the admin export spans the **BGN→EUR switch**: 2020–2025 contracts are
+in **BGN**, 2026 in **EUR**, plus a few foreign-currency contracts (USD/CHF/GBP/…). `normalize`
+keeps each row's **native currency** — it does **not** coerce to one unit. For safe aggregation
+`normalize` also derives **`contracts.amount_bgn`** (EUR→BGN at the fixed 1 EUR = 1.95583 BGN; NULL
+for unconvertible foreign currencies) — so `SUM(amount_bgn)` is a clean cross-year total while
+`amount` stays the faithful native value. This corrects the earlier "storage unit is EUR" assumption
+in [core-scope.md](core-scope.md).
+
+## Data quality
+
+The admin register carries a small number of **source** data-entry errors. They were investigated
+(May 2026) and are handled in `normalize-egov.sql` **non-destructively** — staging stays raw; the
+verdict (`value_flag`) and the clean amount (`amount_bgn`) are derived columns. See
+[0007_data_quality.sql](../packages/db/migrations/0007_data_quality.sql).
+
+- **Value errors (~213 contracts, 0.12 % of rows but ~12 % of the naive total).** A signed or amended
+  value ≥100× the procurement's estimate. Raw-cell inspection shows a **dropped decimal comma at
+  source** (signing `6938481985,00` vs estimate `69384819,85`), and a **cross-check against the
+  open-data portal found the identical wrong values** (same ЦАИС source — 108/108 matched, none
+  corrected) — so they are upstream errors, not a load artifact, and are **not recoverable**. Hence
+  `value_flag`, never a fabricated correction:
+  - `value_suspect` — the signed value itself is ≥100× the estimate → **excluded** from `amount_bgn`.
+  - `annex_suspect` — an amendment pushed `current_value` ≥100× signing (or negative); the signing
+    value is sane (matches the estimate) → **fall back to signing**, so the contract still counts
+    (e.g. the ЕТ whose annex read 4.6 bn falls back to its 113 500 signing).
+  - `review` — 10–100× (gray zone: some real frameworks, some errors) → kept, flagged.
+- **Recipient identity.** Bidders are keyed by ЕИК when valid (9/13 digits), else by **normalised
+  name** — stopping the collapse where ~595 distinct withheld-ЕИК (`не се публикува`) contractors
+  merged onto one node, and recovering 839 contracts whose contractor had a name but no ЕИК.
+- **Minor** (negligible, surfaced not altered): 33 out-of-range dates, 187 zero-value, the 1 negative
+  (resolved by the annex fallback), ~269 duplicate `(УНП, contract_number)` keys (mostly real multi-lot).
+
+Net canonical headline `SUM(amount_bgn)` (all currencies in BGN, errors excluded) ≈ **99.4 bn BGN**.
+
+## Sources
+
+Two sources feed the domain today, plus retired loaders kept for history.
+
+| Source | What it carries | Period | Format | Role |
 | --- | --- | --- | --- | --- |
-| Обществени поръчки (incl. the 2007–2015 set) | opened procedures: authority, subject, **procedure type**, dates, EU/thresholds, participant presence | 2007–2025 | CSV | procedure-level spine; recovers procedure_type/estimated where the contracts set lacks them |
-| Договори (annual) | authority → contractor → value → date | 2007–2025 | CSV | the money spine (matches the current data) |
-| Изменения (annual) | per-contract amendments | annual | CSV | **annex count** + value-growth-over-time (a field neither xlsx nor core had) |
-| OCDS release packages | full nested model: parties / tender / lots / awards / contracts / bids / amendments | 2026+ | JSON | richest; **the only ongoing/live feed** |
-| `data/*.xlsx` (bootstrap) | the current ~129k rows | — | xlsx | one-time backfill, superseded once CSV lands |
+| **Admin ЦАИС ЕОП export** (`data/Open_data_resources.zip`) | Contracts / Tenders / Annexes — rich per row: procedure type, CPV (+ label), estimated/signing/current value, lots, authority type, EU funding, bid count, consortium flag | 2020–2026 | CSV (nested zips) | **authoritative base**; loaded once by `load-admin.mjs` |
+| **OCDS release packages** (data.egov.bg, org `502`) | full nested model: parties / tender / lots / awards / contracts / bids / amendments | 2026+ | JSON | **the ongoing/live feed**; `load-ocds.mjs` |
 
-**CSV is a one-time backfill; OCDS is the only ongoing feed.** The three CSV sets cover *closed*
-historical years (2007–2025) and are ingested **once**. From **2026 the live feed is OCDS**,
-which carries every new procedure, contract, and amendment — including amendments to historically
-backfilled contracts, linked by `УНП`/`ocid`. So there is no CSV↔OCDS time overlap to reconcile;
-the only historical overlap is xlsx↔CSV (and the xlsx is droppable once the CSV backfill is
-validated).
+The admin export already covers through its snapshot date (2026-05-22), so there is **no overlap to
+reconcile today**; OCDS is the mechanism to stay current after it. When OCDS later returns a record
+the admin snapshot already has, **admin wins** — dedupe on `(УНП, contract_number)` at load time
+(the admin rows are richer). A contract whose УНП has no tenders-export row gets a **synthetic
+tender** at normalize time, so every contract has a parent regardless of source.
 
-Open against these is settled by **Phase 0** below: exact API methods + auth (anonymous file
-URLs vs api_key), CSV encoding (UTF-8 vs Windows-1251), decimal/date conventions, and the
-**column-parity check** — whether the contracts CSV carries procedure_type / CPV / estimated, or
-those must be joined from the procurements set on `purchase_id`.
+## Source history
+
+The pipeline reached the admin export through two now-retired ingests:
+
+- **xlsx bootstrap** ([data-ingestion.md](data-ingestion.md)) — two sector workbooks (~129k rows, all
+  EUR) into `raw_aop_contracts`. Thin and EUR-only; **retired** (`raw_aop_contracts` is empty, the
+  domain is rebuilt from the admin export).
+- **Portal contracts/annexes CSV** (`load-egov.mjs` / `load-annexes.mjs`, data.egov.bg org `502`) —
+  the public "Договори и изменения" register, 2016–2023, **broader** (all sectors, incl. РОП) but
+  **thinner** per row (no procedure type / CPV / estimated value; `needs_enrichment = 1`). Used to
+  **verify admin coverage** (it is how we measured the 99.98 % match and found the РОП gap), kept as
+  that baseline but **not part of the live pipeline**. Its **dual-schema** handling is a finding worth
+  keeping: АОП ships two header layouts — ЦАИС ЕОП („Уникален номер на поръчката", „Номер на договор",
+  …) and the older **РОП** (`УНП`, `ДОГОВОР НОМЕР`, uppercased, leading blank column) — so any loader
+  that touches the portal CSV must match headers **by name, case-insensitively, with aliases** (without
+  it, РОП/2016–2019 files load only their two ЕИК columns).
 
 ## Architecture — one domain, many feeds
 
-Today is single-source (`xlsx → raw_aop_contracts → normalize`). Generalize to **per-source
-adapters writing one canonical staging table**, so the domain build is source-agnostic:
+As built: per-source **loaders** write **dedicated staging tables** (rather than one canonical
+`stg_*` table — the simpler choice that won), and a single SQL **rebuild** derives the domain.
 
 ```
-data.egov.bg API ─fetch─► cached file (CSV: договори/изменения/поръчки) ─┐
-OCDS JSON (2026+) ─fetch─► cached file (release packages) ───────────────┤ adapters
-data/*.xlsx (bootstrap) ─────────────────────────────────────────────────┘  (pure fns)
-                                                                              ▼
-                                                              canonical staging (stg_*)
-                                                                              │ normalize v2 (rebuild)
-                                                                              ▼
-                            authorities · tenders · lots · bidders · contracts
-                                          + amendments (new) + provenance / freshness
+admin export (zip: Contracts/Tenders/Annexes) ─load-admin.mjs─┐
+OCDS JSON (2026+) ──────────────────────────────load-ocds.mjs─┤
+                                                               ▼
+   staging:  raw_egov_contracts · raw_egov_tenders · raw_egov_amendments
+                    (source discriminator; scoped full-reload per feed)
+                                                               │ derive-amendments.sql  (current_value + annex_count)
+                                                               │ normalize-egov.sql      (full domain rebuild)
+                                                               ▼
+              authorities · tenders · lots · bidders · contracts
 ```
 
-**Canonical staging.** A generalization of `raw_aop_contracts`: the **superset** of every
-modeled field the domain *and* core-scope need (sector, bids_received, eu_funded, contract_kind,
-signing_value, current_value, contract_number/subject, contract_end_date), plus a `source`
-discriminator, a derived **natural key**, and a **content hash** for idempotency. An optional
-raw-JSON column preserves any unmapped source fields, so nothing is silently dropped. The cached
-download files are the lossless per-source artifacts. **This table is the seam that merges the
-multi-source work and the core-scope propagation into one migration.**
+**Staging.** Three tables keyed by a `source` discriminator (`admin:contracts:YEAR`,
+`admin:tenders:YEAR`, `admin:annexes:YEAR`, `ocds:YEAR:…`). Each feed is reloaded with a **scoped
+full-reload** (`DELETE … WHERE source LIKE '<prefix>:%'`) so feeds coexist and a re-run is
+idempotent. The admin export carries the procedure-level fields per row, so `needs_enrichment = 0`
+and there is **no separate enrichment join** (the obsolete plan was a `УНП` merge of a thin CSV
+with a later admin export — collapsed now that the admin export *is* the base).
 
-**Adapters** (pure, runtime-agnostic functions: source bytes/rows → canonical rows): `xlsx`
-(refactor of the current loader), `egov-contracts`, `egov-amendments`, `egov-procurements`,
-`ocds`. Each owns its column mapping, encoding, coercion, and natural-key derivation. They live
-in a **shared package** so both runtimes (below) reuse them with zero duplication.
+**Loaders.** `load-admin.mjs` unzips the nested admin export and parses the EU-formatted CSVs
+(comma decimals, dot dates, Да/Не booleans), batched to ≤90 KB UTF-8 (Cyrillic is 2 bytes/char)
+and run as one atomic D1 batch. `load-ocds.mjs` walks OCDS release packages → contract +
+amendment rows. `derive-amendments.sql` then rolls each contract's latest after-value into
+`current_value` and counts annexes into `annex_count`.
 
-**Loader.** Idempotent upsert into staging (`ON CONFLICT(source, natural_key)`), batched to
-≤90 KB UTF-8 (the proven byte budget — Cyrillic is 2 bytes/char) and run as one atomic D1 batch.
-Incremental: only resources whose content hash changed are re-loaded.
+**normalize v2** ([`normalize-egov.sql`](../scripts/normalize-egov.sql)). Full rebuild of the
+domain from staging (deterministic, re-runnable, atomic): authorities deduped on ЕИК (+ `type`);
+tenders from the tenders-export header rows plus a synthetic tender per contract-only УНП; lots
+from the lot rows; bidders deduped on contractor ЕИК with a name-based consortium flag; contracts
+1:1 with admin rows, `amount` = current value, with the core-scope fields propagated. Amendment
+detail stays in `raw_egov_amendments` (no separate domain table) — the rollup onto contracts is
+all the core needs; the full annex history feeds the parked signals.
 
-**normalize v2.** Consumes canonical staging source-agnostically; full rebuild of the domain
-(deterministic and cheap); **propagates the core-scope fields**; builds a new `amendments`
-domain table; and links feeds by `УНП`/`ocid` — the xlsx bootstrap is superseded by the CSV
-backfill for the same historical keys, and ongoing OCDS releases **update** earlier records
-(amendments, value changes) rather than colliding with them (no CSV↔OCDS time overlap).
-
-**Provenance & freshness.** An `etl_sources` table (dataset, resource, version/etag, fetched_at,
-row_count, status) drives incrementality and surfaces the **data-freshness date the IA
-requires**.
+**Still to build:** a provenance/freshness record (fetched_at, row_count, status per source) to
+surface the **data-freshness date the IA requires** and to drive incremental OCDS loads.
 
 ## Runtime — backfill local, deltas (optionally) on a Worker
 
@@ -91,31 +185,28 @@ double the work. The only non-shared code is the thin I/O shell.
 
 | Job | Size | Runtime |
 | --- | --- | --- |
-| Backfill (xlsx + the 2007–2025 CSV corpus) | heavy, **one-time**, attended | **Node CLI** (`scripts/etl`), local or CI — never a Worker |
-| Ongoing feed (**OCDS releases, 2026+**) | small, frequent, unattended | the **OCDS adapter**, run by the CLI on CI cron *or* a thin **`apps/etl` Worker Cron Trigger** |
+| Backfill (the admin export, 2020–2026) | heavy, **one-time**, attended | **Node CLI** (`load-admin.mjs` + `normalize-egov.sql`), local or CI — never a Worker |
+| Ongoing feed (**OCDS releases, 2026+**) | small, frequent, unattended | `load-ocds.mjs`, run by the CLI on CI cron *or* a thin **`apps/etl` Worker Cron Trigger** |
 
 The Worker only ever handles small **OCDS** deltas, so it stays under memory/CPU limits — it never
-parses xlsx or CSV and never does bulk. Porting the *whole* pipeline into a Worker is the
-anti-pattern (it duplicates logic and blows the limits); sharing the adapters and assigning each
-job to the right runtime is what keeps it cheap. Until the Worker is wired, the CLI on a schedule
-(or manual) does the OCDS job too.
+parses the admin zip and never does bulk. Porting the *whole* pipeline into a Worker is the
+anti-pattern (it duplicates logic and blows the limits); assigning each job to the right runtime is
+what keeps it cheap. Until the Worker is wired, the CLI on a schedule (or manual) does the OCDS job.
 
-- **CLI surface:** `etl:fetch` / `etl:load` / `etl:normalize` / `etl:refresh` with
-  `[--full | --since=YEAR]` and `[--remote]`.
-- **Secrets:** the data.egov.bg api_key lives in `.dev.vars` / a Wrangler secret — never
-  committed (treated as a production registry credential per [AGENTS.md](../AGENTS.md)).
+- **Secrets:** **none for reads** — the OCDS feed is anonymous and the admin export is a local file.
+  National-registry **write/private** credentials (НАП / Търговски регистър / АОП) remain production
+  secrets, never committed (per [AGENTS.md](../AGENTS.md)); they belong to the parked owner layer.
 
 ## Dedup & identity
 
-- **Natural key (contract):** `УНП + lot_number + contract_number`, falling back to
-  `tender_internal_id`; this is also the link to OCDS `ocid`. Within a feed: `ON CONFLICT` replace.
-- **xlsx ↔ CSV (historical):** the 2007–2025 CSV backfill is the system of record for past years;
-  the xlsx is the pre-portal bootstrap, dropped once the CSV backfill is validated (kept meanwhile
-  only for any fields the parity check shows the CSV lacks).
-- **CSV ↔ OCDS:** no time overlap (≤2025 vs ≥2026). OCDS **continues** the timeline and updates
-  earlier records (amendments, value changes) by `УНП`/`ocid` — a linkage, not a dedup conflict.
-- The existing grain rules carry over (a `tender_internal_id` collapses to one tender; each award
-  line is its own contract — see [data-ingestion.md](data-ingestion.md)).
+- **Contract identity:** one domain contract per admin staging row (`c:<staging id>`); a procurement
+  is keyed by **УНП** (`tenders.source_id`), the link to OCDS `ocid`.
+- **admin ↔ OCDS:** the admin export is the system of record through its snapshot date; OCDS
+  **continues** the timeline after it. Where they overlap, **admin wins** — dedupe on
+  `(УНП, contract_number)` at OCDS load time (admin rows are richer). No silent collisions.
+- **Grain:** the tenders export is one **header row** per УНП (→ one `tenders` row) plus one row per
+  **lot** (→ `lots`); each contract award line is its own contract. УНП seen only in contracts gets a
+  synthetic tender so every contract has a parent.
 
 ## Phasing
 
@@ -127,24 +218,40 @@ job to the right runtime is what keeps it cheap. Until the Worker is wired, the 
 | **3 — OCDS adapter (2026+)** | release-package parsing → staging; idempotent **incremental** load keyed by `ocid` | the **ongoing/refreshable** feed; multi-supplier awards feed the (parked) consortium members for free |
 | **4 — Scheduling** (optional) | the **OCDS** delta on CI cron, or a thin `apps/etl` Worker Cron Trigger | unattended refresh; freshness surfaced in the UI |
 
-Phases 1–4 are sequenced after Phase 0 confirms the source reality. Phase 1 alone is worth doing
-even if the portal ingest slips, because it closes the core-scope gaps.
+**Status against this plan (the phases above are the original portal design; superseded by the
+admin export):** the spike, the egov CSV backfill and the OCDS adapter all ran; the **column-parity
+gap** they exposed (no procedure type / CPV / estimated in the portal CSV) is what motivated sourcing
+the **admin export**, which carries those fields per row — so **normalize v2 is done** against the
+admin staging (see [Current state](#current-state--implemented-may-2026)) and the УНП enrichment
+merge is **obsolete**. **Remaining:** the **remote D1 push** and **Phase 4 scheduling** (the OCDS
+delta on cron / a thin `apps/etl` Worker).
 
-## Open questions (resolved by the Phase 0 spike)
+## Findings (resolved during the build)
 
-- Exact data.egov.bg API methods + auth — anonymous resource URLs vs api_key from the Developer
-  Cabinet.
-- CSV encoding, delimiter, decimal and date formats.
-- Column parity: contracts CSV self-contained, or procedure_type / CPV / estimated joined from
-  the procurements set on `purchase_id`?
-- Cross-source dedup precedence for overlapping years.
-- OCDS access — a live endpoint vs bulk file download.
-- The exact CSV→OCDS handoff — is the cutover clean at 2025/2026, or does any CSV extend into 2026?
+- **API:** every method is `POST https://data.egov.bg/api/<method>`; **no api_key for reads**.
+  АОП is org `502`. Flow: `listDatasets` (criteria `org_ids:[502]`) → `listResources` (criteria
+  `dataset_uri`) → `getResourceData` (returns the whole resource as JSON).
+- **Encoding/format:** `getResourceData` returns UTF-8 JSON — for CSV resources `data` is an array
+  with the **header in row 0**; cells arrive **quote-wrapped**, dates are **DD/MM/YYYY**, booleans
+  **True/False**. Currency is **BGN** in the CSVs, **EUR** in OCDS 2026.
+- **Column parity (the decisive finding):** the portal contracts CSV has **no** procedure_type /
+  CPV / estimated_value and there is **no 2016+ procurements CSV** to recover them — which is exactly
+  why we sourced the **admin export**, where every contract row carries them. That collapsed the
+  planned УНП enrichment merge into a single authoritative load.
+- **Dual schema:** ЦАИС ЕОП vs older РОП header layouts (see [Source history](#source-history)) —
+  handled in the portal loaders by case-insensitive alias mapping; not a concern for the admin export.
+- **Portal handoff gap:** the annual portal "Договори и изменения" CSVs end at **2023** and OCDS
+  starts **2026**, leaving **2024–2025** uncovered on the portal — **the admin export fills it** (it
+  is continuous 2020–2026), which is another reason it superseded the portal CSV.
 
 ## Cross-references
 
 - What the ingested data feeds: [core-scope.md](core-scope.md).
-- Current single-source bootstrap (the xlsx adapter, in effect): [data-ingestion.md](data-ingestion.md).
-- Schema + transform: [0000_init.sql](../packages/db/migrations/0000_init.sql),
-  [0001_raw_aop.sql](../packages/db/migrations/0001_raw_aop.sql),
-  [normalize-aop.sql](../scripts/normalize-aop.sql).
+- The retired xlsx bootstrap (historical): [data-ingestion.md](data-ingestion.md).
+- Domain schema: [0000_init.sql](../packages/db/migrations/0000_init.sql) +
+  [0006_domain_v2.sql](../packages/db/migrations/0006_domain_v2.sql) (rich-field promotion).
+- Staging schema: [0003_egov_staging.sql](../packages/db/migrations/0003_egov_staging.sql),
+  [0004_egov_amendments.sql](../packages/db/migrations/0004_egov_amendments.sql),
+  [0005_admin_rich.sql](../packages/db/migrations/0005_admin_rich.sql).
+- Transform: [normalize-egov.sql](../scripts/normalize-egov.sql) (current),
+  [normalize-aop.sql](../scripts/normalize-aop.sql) (retired xlsx path).

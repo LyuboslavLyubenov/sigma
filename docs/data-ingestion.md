@@ -6,9 +6,11 @@ product framing of the dataset and its fields see
 [`docs/design/KICKOFF.md`](design/KICKOFF.md), and for the exact columns the
 inline comments in [`packages/db/migrations/0001_raw_aop.sql`](../packages/db/migrations/0001_raw_aop.sql).
 
-This describes the current single-source **Excel bootstrap**. The forward design that pulls
-the АОП data from the data.egov.bg open-data portal (multi-source, refreshable, OCDS-ready) is
-in [etl-pipeline.md](etl-pipeline.md); this pipeline becomes its "xlsx adapter".
+> **Retired (May 2026).** This Excel bootstrap was the *first* loader; the domain is now built
+> from the **admin ЦАИС ЕОП export** (2020–2026) with the OCDS feed for 2026+ — see
+> [etl-pipeline.md](etl-pipeline.md). `raw_aop_contracts` is empty and `normalize-aop.sql` no
+> longer runs. Kept as a historical record of the xlsx adapter and the conventions it established
+> (byte-budgeted batching, staging-first ELT, the consortium model) that the current pipeline reuses.
 
 ## Source
 

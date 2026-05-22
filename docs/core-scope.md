@@ -5,7 +5,7 @@
 > [screens](../mocks/docs/design/02-screens.md)): show **the deals, who receives the money,
 > and the structures that order it** — and nothing else yet. The owner layer and the
 > red-flag signals layer are explicitly out (see [Parked](#parked)). The pipeline that
-> feeds this is [data-ingestion.md](data-ingestion.md).
+> feeds this is [etl-pipeline.md](etl-pipeline.md).
 >
 > Design prose in English; all user-facing copy in **Bulgarian**.
 
@@ -17,8 +17,10 @@ red-flag signals are **parked**.
 
 Three entities — **Институция** (authority / buyer), **Компания** (recipient, keyed by ЕИК)
 and **Договор** (contract) — plus the **authority→company money flows** and the **global
-search** that connect them into one navigable graph. Read-only. Storage unit is EUR;
-amounts are shown in лева (IA editorial principle #1).
+search** that connect them into one navigable graph. Read-only. Money is stored in each
+contract's **native currency** (BGN through 2025, EUR from 2026; the lev is fixed at
+1 EUR = 1.95583 BGN), so any cross-year sum converts to a single display unit — shown in лева
+per IA editorial principle #1.
 
 ## In scope
 
@@ -48,7 +50,7 @@ re-migrated when these resume — they just have no UI or scoring in the core.
   Needs the Търговски регистър joined on ЕИК — a separate ingest (see
   [KICKOFF](design/KICKOFF.md)). The `bidder_members` table, the `contract_participants`
   view and the `eik_normalized` join key all remain in the schema, unused by the core UI.
-  Money is attributed with **lens #1 only**: `SUM(contracts.amount)` grouped by `bidder_id`
+  Money is attributed with **lens #1 only**: `SUM(contracts.amount_bgn)` grouped by `bidder_id`
   (a consortium is credited as the single awarded entity). The member-level lens #2
   activates with this layer — see the "Which sum to use" table under
   [data-ingestion.md → Consortia](data-ingestion.md#consortia-обединения--дззд).
@@ -59,18 +61,20 @@ re-migrated when these resume — they just have no UI or scoring in the core.
 ## Surfaces & data mapping
 
 Source tables are the domain tables in [0000_init.sql](../packages/db/migrations/0000_init.sql)
-unless noted. Fields marked **†** are needed by the core but **not in the domain yet** — they
-live only in staging and must be propagated; see [Data dependencies](#data-dependencies-this-scope-needs).
++ [0006_domain_v2.sql](../packages/db/migrations/0006_domain_v2.sql). Fields once marked **†**
+were "not in the domain yet" under the xlsx bootstrap; **normalize v2 now propagates almost all of
+them** from the admin export — see [Data dependencies](#data-dependencies-this-scope-needs) for the
+few that remain (sector + a couple of minor contract fields).
 
 ### Authority profile (`/институции/[slug]`)
 
 | Shows | Source / aggregation |
 | --- | --- |
 | Име | `authorities.name` |
-| Общо похарчено | `SUM(contracts.amount)` over contracts whose `tenders.authority_id` = this id |
+| Общо похарчено | `SUM(contracts.amount_bgn)` over contracts whose `tenders.authority_id` = this id |
 | Брой договори | `COUNT(contracts)` via `tenders.authority_id` |
 | Какво купува (CPV mix) | `GROUP BY tenders.cpv_code` (readable CPV names need a dictionary †) |
-| Към кого (топ изпълнители) | `GROUP BY contracts.bidder_id`, `SUM(amount)` desc → `bidders.name` |
+| Към кого (топ изпълнители) | `GROUP BY contracts.bidder_id`, `SUM(amount_bgn)` desc → `bidders.name` |
 | Процедури (mix) | `GROUP BY tenders.procedure_type` |
 | ЕС финансиране (дял) | share of `eu_funded` † |
 | Сектор | `sector` † |
@@ -81,7 +85,7 @@ live only in staging and must be propagated; see [Data dependencies](#data-depen
 | Shows | Source / aggregation |
 | --- | --- |
 | Име / ЕИК | `bidders.name` (display-only) / `bidders.bulstat` + `eik_normalized` (key) |
-| Общо спечелено | `SUM(contracts.amount)` grouped by `bidder_id` (lens #1) |
+| Общо спечелено | `SUM(contracts.amount_bgn)` grouped by `bidder_id` (lens #1) |
 | Брой договори | `COUNT(contracts)` |
 | От кои институции | `GROUP BY tenders.authority_id` → `authorities.name` |
 | Какво продава (CPV mix) | `GROUP BY tenders.cpv_code` |
@@ -97,7 +101,7 @@ live only in staging and must be propagated; see [Data dependencies](#data-depen
 | --- | --- |
 | Възложител | `authorities.name` via `tenders.authority_id` |
 | Изпълнител | `bidders.name` + ЕИК |
-| Стойности: прогнозна → при сключване → текуща | `tenders.estimated_value`; `contracts.signing_value` † + `current_value` † (today `amount` collapses these via `COALESCE`) |
+| Стойности: прогнозна → при сключване → текуща | `tenders.estimated_value` → `contracts.signing_value` → `current_value`; `amount` is the headline (= current, or signing when an annex is flagged `annex_suspect`) |
 | Процедура | `tenders.procedure_type` |
 | Брой оферти | `bids_received` † |
 | Обект (вид: доставки / услуги / строителство) | `contract_kind` † |
@@ -112,7 +116,7 @@ live only in staging and must be propagated; see [Data dependencies](#data-depen
 ### Lists & browser
 
 - **Authorities** / **Companies** lists — ranked tables; companies default to top
-  beneficiaries by `SUM(contracts.amount)`. Both rankable and filterable.
+  beneficiaries by `SUM(contracts.amount_bgn)`. Both rankable and filterable.
 - **Contracts browser** — filtered list; filters are URL-encoded per the IA so any view is
   shareable: year (`signed_at`), sector †, CPV, procedure type, authority, company, value
   range, EU-funded †. Every aggregate elsewhere decomposes to a filtered view of this list.
@@ -120,7 +124,7 @@ live only in staging and must be propagated; see [Data dependencies](#data-depen
 ### Flows (`/потоци`)
 
 Authority→company edges: `GROUP BY tenders.authority_id, contracts.bidder_id` →
-`SUM(amount)`, `COUNT(*)`; nodes drawn from `authorities` and `bidders`; top-N by amount,
+`SUM(amount_bgn)`, `COUNT(*)`; nodes drawn from `authorities` and `bidders`; top-N by amount,
 with the same sector/year/value filters carried through. **No owner column** (that toggle is
 part of the parked layer).
 
@@ -131,27 +135,34 @@ the УНП (`tenders.source_id`) and `contract_number` †.
 
 ## Data dependencies this scope needs
 
-The domain tables are a thin skeleton; several fields the core **displays and filters on**
-still live only in staging (`raw_aop_contracts`) and must be propagated by
-[normalize-aop.sql](../scripts/normalize-aop.sql). **No new data source is required** — all
-but the last two rows are already loaded; this is ETL/schema work, not sourcing.
+**Mostly done.** normalize v2 (the admin export → domain rebuild, [etl-pipeline.md](etl-pipeline.md))
+propagates these directly — the admin export carries them per row, from `raw_egov_contracts` /
+`raw_egov_tenders` via [normalize-egov.sql](../scripts/normalize-egov.sql).
 
-| Field | Staging column | Proposed home | Needed by |
-| --- | --- | --- | --- |
-| Sector | `dataset` | `tenders` (tender-level) | sector chip / filter on every list |
-| Bidder count | `bids_received` (M) | `tenders` (or lot-level) | contract detail, company "среден брой оферти" |
-| EU-funded flag | `eu_funded` (K) | `tenders` | contract detail, EU share, EU filter |
-| Contract kind | `contract_kind` (H) | `tenders` | "обект" display + filter |
-| Signing & current value (separate) | `signing_value_eur` (T), `current_value_eur` (U) | `contracts` | value-history display (keep `amount` as the headline) |
-| Contract number & subject | `contract_number` (P), `contract_subject` (Q) | `contracts` | detail + search |
-| Contract end date | `contract_end_date` (S) | `contracts` | contract period |
-| Authority type | — (derived) | `authorities.type` | the `/институции` type filter |
-| CPV labels | — (external CPV dictionary) | reference table | readable CPV mixes |
+| Field | Domain home | Status |
+| --- | --- | --- |
+| Bidder count | `contracts.bids_received` | **done** |
+| EU-funded flag | `contracts.eu_funded` | **done** |
+| Contract kind (доставки / услуги / строителство) | `contracts.contract_kind` + `tenders.contract_kind` | **done** |
+| Signing & current value (separate) | `contracts.signing_value` / `current_value`; `amount` headline + `amount_bgn` canonical | **done** |
+| Annex count | `contracts.annex_count` | **done** |
+| Contract number | `contracts.contract_number` | **done** |
+| Authority type | `authorities.type` | **done** — 4,867 / 4,868 typed (from Вид на възложителя) |
+| CPV labels | `tenders.cpv_description` | **done** — the export ships the label; no external dictionary needed |
+| Awarded-to-group flag | `contracts.awarded_to_group` | **done** — per-contract (distinct from the entity-level `bidders.is_consortium`) |
+| **Sector** | — | **pending** — no sector column in the admin data; closest is the authority's Основна дейност (`raw_egov_tenders.main_activity`, not yet promoted) or the CPV division |
+| **Contract subject / end date** | — | **pending** — minor; the tender title (`procurement_subject`) covers most needs |
 
-The first seven are pure propagation from staging. **Authority type** needs a classification
-pass over the already-normalised names (ministry / municipality / agency / state company /
-education / health / other); profiles and lists work without it (untyped). **CPV labels**
-need an external CPV code→name dictionary; until then CPV surfaces by code.
+So the core is buildable now. Only **sector** (a chip/filter) and a couple of minor contract fields
+remain — none blocking.
+
+**Money & data quality.** Sum the canonical **`contracts.amount_bgn`** (every currency already in BGN
+at the fixed 1.95583; `NULL` for the 172 value-error contracts and a few foreign currencies, so it is
+always safe to `SUM`) — not the raw native-currency `amount`, which is for display. Each contract
+also carries **`value_flag`** (`ok` / `review` / `annex_suspect` / `value_suspect`): the explorer
+should surface `value_suspect`/`annex_suspect` contracts as "anomalous value — under review" rather
+than hide them (they are prime scrutiny targets). Recipients with no valid ЕИК are keyed by name. See
+[etl-pipeline.md → Data quality](etl-pipeline.md#data-quality).
 
 ## What is not in v1
 
@@ -163,7 +174,7 @@ screen, no write side, no public API (bulk CSV export per filtered view is in sc
 
 - Full design (the superset this carves from): [IA](../mocks/docs/design/01-information-architecture.md),
   [screens](../mocks/docs/design/02-screens.md).
-- Pipeline feeding the domain tables: [data-ingestion.md](data-ingestion.md).
-- Schema: [0000_init.sql](../packages/db/migrations/0000_init.sql) (domain),
-  [0001_raw_aop.sql](../packages/db/migrations/0001_raw_aop.sql) (staging + `price_benchmark`),
-  [0002_consortia.sql](../packages/db/migrations/0002_consortia.sql) (parked owner hooks).
+- Pipeline feeding the domain tables: [etl-pipeline.md](etl-pipeline.md).
+- Schema: [0000_init.sql](../packages/db/migrations/0000_init.sql) + [0006_domain_v2.sql](../packages/db/migrations/0006_domain_v2.sql) (domain),
+  [0003_egov_staging.sql](../packages/db/migrations/0003_egov_staging.sql) / [0005_admin_rich.sql](../packages/db/migrations/0005_admin_rich.sql) (staging),
+  [0002_consortia.sql](../packages/db/migrations/0002_consortia.sql) (parked owner hooks + `contract_participants`).
