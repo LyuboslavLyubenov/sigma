@@ -14,10 +14,3 @@ INSERT OR IGNORE INTO bidders (id, name, bulstat) VALUES
   ('bidder-a', 'Алфа ЕООД', '111111111'),
   ('bidder-b', 'Бета АД', '222222222'),
   ('bidder-c', 'Гама ООД', '333333333');
-
-INSERT OR IGNORE INTO bids
-  (id, tender_id, lot_id, bidder_id, amount, currency, is_winner, submitted_at)
-VALUES
-  ('bid-1', 'demo-tender', NULL, 'bidder-a', 1180000, 'BGN', 1, '2026-03-25'),
-  ('bid-2', 'demo-tender', NULL, 'bidder-b', 1195000, 'BGN', 0, '2026-03-26'),
-  ('bid-3', 't-build-01', NULL, 'bidder-c', 3450000, 'BGN', 0, '2026-03-10');

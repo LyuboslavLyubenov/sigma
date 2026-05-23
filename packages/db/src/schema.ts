@@ -5,6 +5,13 @@ export interface AuthorityRow {
   name: string;
   bulstat: string | null;
   region: string | null;
+  type: string | null;
+  // location — filled from OCDS parties / Trade Register / NSI ЕКАТТЕ
+  nuts: string | null;
+  settlement: string | null;
+  ekatte: string | null;
+  municipality: string | null;
+  address: string | null;
   created_at: string;
 }
 
@@ -14,12 +21,19 @@ export interface TenderRow {
   title: string;
   authority_id: string;
   cpv_code: string | null;
+  cpv_description: string | null;
   estimated_value: number | null;
   currency: string;
   procedure_type: string;
+  contract_kind: string | null;
+  num_lots: number | null;
   status: string;
   published_at: string | null;
   deadline_at: string | null;
+  legal_basis: string | null;
+  award_criteria: string | null;
+  main_activity: string | null;
+  notice_type: string | null;
   created_at: string;
 }
 
@@ -40,6 +54,13 @@ export interface BidderRow {
   eik_valid: number; // 1 if eik_normalized is a valid 9/13-digit ЕИК
   is_consortium: number; // 1 if a joint venture (multi-ЕИК field or ДЗЗД/ОБЕДИНЕНИЕ/КОНСОРЦИУМ name)
   kind: 'company' | 'consortium';
+  // company master data — filled from Trade Register / OCDS parties
+  legal_form: string | null;
+  nuts: string | null;
+  settlement: string | null;
+  ekatte: string | null;
+  municipality: string | null;
+  address: string | null;
   created_at: string;
 }
 
@@ -66,18 +87,6 @@ export interface ContractParticipantRow {
   is_estimated_split: number; // 1 = equal split among members (estimate), 0 = exact
 }
 
-export interface BidRow {
-  id: string;
-  tender_id: string;
-  lot_id: string | null;
-  bidder_id: string;
-  amount: number;
-  currency: string;
-  is_winner: number;
-  submitted_at: string | null;
-  created_at: string;
-}
-
 export interface ContractRow {
   id: string;
   tender_id: string;
@@ -85,6 +94,24 @@ export interface ContractRow {
   amount: number;
   currency: string;
   signed_at: string | null;
+  contract_number: string | null;
+  signing_value: number | null;
+  current_value: number | null;
+  annex_count: number;
+  eu_funded: number | null;
+  bids_received: number | null;
+  contract_kind: string | null;
+  awarded_to_group: number | null;
+  value_flag: string;
+  amount_eur: number | null;
+  fx_converted: number;
+  fx_rate: number | null;
+  lot_id: string | null;
+  document_number: string | null;
+  published_at: string | null;
+  contract_subject: string | null;
+  vat: string | null;
+  sme: string | null;
   created_at: string;
 }
 

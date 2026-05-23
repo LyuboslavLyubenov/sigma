@@ -31,11 +31,10 @@
 --     11k+ УНП appear only in contracts (no tenders row) → a synthetic 'неизвестна' tender so
 --     every contract has a parent. bids stays empty (the data has a bid COUNT, not bids).
 
--- Full clear in child→parent order (D1 enforces FKs). risk_scores/bids are dependents and
--- are stale after a domain reload; risk_scores is recomputed by apps/etl after this runs.
+-- Full clear in child→parent order (D1 enforces FKs). risk_scores is a dependent and is stale after
+-- a domain reload; it is recomputed by apps/etl after this runs.
 DELETE FROM bidder_members;
 DELETE FROM contracts;
-DELETE FROM bids;
 DELETE FROM risk_scores;
 DELETE FROM lots;
 DELETE FROM tenders;
@@ -57,7 +56,8 @@ GROUP BY authority_eik;
 --     procedure type, CPV, the procurement-level estimated value, lot count and authority.
 INSERT OR IGNORE INTO tenders
   (id, source_id, title, authority_id, cpv_code, cpv_description, estimated_value, currency,
-   procedure_type, contract_kind, num_lots, status, deadline_at)
+   procedure_type, contract_kind, num_lots, status, deadline_at,
+   legal_basis, award_criteria, main_activity, notice_type)
 SELECT
   't:' || t.unp,
   t.unp,
@@ -71,7 +71,11 @@ SELECT
   t.contract_kind,
   t.num_lots,
   CASE WHEN EXISTS (SELECT 1 FROM raw_egov_contracts c WHERE c.unp = t.unp) THEN 'awarded' ELSE 'published' END,
-  t.deadline
+  t.deadline,
+  t.legal_basis,
+  t.award_criteria,
+  t.main_activity,
+  t.notice_type
 FROM raw_egov_tenders t
 WHERE t.lot_id IS NULL;
 
@@ -80,7 +84,7 @@ WHERE t.lot_id IS NULL;
 --     estimated are taken from the contract line.
 INSERT OR IGNORE INTO tenders
   (id, source_id, title, authority_id, cpv_code, estimated_value, currency,
-   procedure_type, contract_kind, status)
+   procedure_type, contract_kind, status, legal_basis, award_criteria)
 SELECT
   't:' || c.unp,
   c.unp,
@@ -91,7 +95,9 @@ SELECT
   COALESCE(MIN(c.currency), 'BGN'),
   'неизвестна',
   MIN(c.contract_kind),
-  'awarded'
+  'awarded',
+  MIN(c.legal_basis),
+  MIN(c.award_criteria)
 FROM raw_egov_contracts c
 WHERE c.unp IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM raw_egov_tenders t WHERE t.unp = c.unp)
@@ -170,7 +176,8 @@ GROUP BY bidder_key;
 INSERT OR IGNORE INTO contracts
   (id, tender_id, bidder_id, amount, currency, signed_at,
    contract_number, signing_value, current_value, annex_count, eu_funded, bids_received,
-   contract_kind, awarded_to_group, value_flag, amount_eur, fx_converted, fx_rate)
+   contract_kind, awarded_to_group, value_flag, amount_eur, fx_converted, fx_rate,
+   lot_id, document_number, published_at, contract_subject, vat, sme)
 SELECT
   'c:' || x.id,
   't:' || x.unp,
@@ -196,7 +203,13 @@ SELECT
   CASE WHEN COALESCE(x.currency, 'BGN') NOT IN ('BGN', 'EUR') THEN 1 ELSE 0 END,
   CASE WHEN COALESCE(x.currency, 'BGN') NOT IN ('BGN', 'EUR')
     THEN (SELECT f.eur_per_unit FROM fx_rates f WHERE f.base_currency = x.currency AND f.rate_date = x.contract_date)
-    ELSE NULL END
+    ELSE NULL END,
+  CASE WHEN x.lot_id IS NOT NULL AND TRIM(x.lot_id) <> '' THEN 'lot:' || x.unp || ':' || x.lot_id ELSE NULL END,
+  x.document_number,
+  x.published_at,
+  x.contract_subject,
+  x.vat,
+  x.sme
 FROM (
   SELECT y.*,
     CASE y.value_flag

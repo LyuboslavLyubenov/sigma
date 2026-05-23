@@ -57,7 +57,6 @@ export default {
         cpvCode: tender.cpv_code,
         procedureType: tender.procedure_type,
         deadlineAt: tender.deadline_at,
-        bids: [],
         signals: null,
       };
       return json(detail);

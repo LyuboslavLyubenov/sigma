@@ -11,18 +11,10 @@ export interface TenderSummary {
   publishedAt: string | null;
 }
 
-export interface BidSummary {
-  bidderId: string;
-  bidderName: string;
-  amount: Money;
-  isWinner: boolean;
-}
-
 export interface TenderDetail extends TenderSummary {
   cpvCode: string | null;
   procedureType: string;
   deadlineAt: string | null;
-  bids: BidSummary[];
   signals: Record<string, number> | null;
 }
 

@@ -22,6 +22,12 @@ CREATE TABLE authorities (
   bulstat    TEXT,                        -- ЕИК / Булстат
   region     TEXT,
   type       TEXT,                        -- Вид на възложителя (министерство / община / агенция …)
+  -- location — filled from OCDS parties / Trade Register / NSI ЕКАТТЕ; NULL until those loaders run
+  nuts         TEXT,                       -- NUTS region code (e.g. BG411 София)
+  settlement   TEXT,                       -- населено място (city/town)
+  ekatte       TEXT,                       -- settlement ЕКАТТЕ code
+  municipality TEXT,                       -- община
+  address      TEXT,                       -- registered / seat address
   created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -40,6 +46,10 @@ CREATE TABLE tenders (
   status          TEXT NOT NULL DEFAULT 'planned',  -- 'awarded' if it has a contract, else 'published'
   published_at    TEXT,
   deadline_at     TEXT,
+  legal_basis     TEXT,                    -- Правно основание за откриване
+  award_criteria  TEXT,                    -- Критерий за възлагане
+  main_activity   TEXT,                    -- Основна дейност на възложителя
+  notice_type     TEXT,                    -- Вид обявление
   created_at      TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -60,22 +70,20 @@ CREATE TABLE bidders (
   eik_valid      INTEGER NOT NULL DEFAULT 0,  -- 1 if eik_normalized is a valid 9/13-digit ЕИК
   is_consortium  INTEGER NOT NULL DEFAULT 0,  -- 1 if the name is a JV (ДЗЗД / ОБЕДИНЕНИЕ / КОНСОРЦИУМ / member list)
   kind           TEXT NOT NULL DEFAULT 'company',  -- 'company' | 'consortium'
+  -- company master data — filled from Trade Register / OCDS parties; NULL until those loaders run
+  legal_form   TEXT,                       -- правна форма (ООД / ЕООД / АД / ЕТ / ДЗЗД …)
+  nuts         TEXT,                        -- NUTS region code
+  settlement   TEXT,                        -- населено място (seat)
+  ekatte       TEXT,                        -- settlement ЕКАТТЕ code
+  municipality TEXT,                        -- община
+  address      TEXT,                        -- seat address
   created_at     TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
--- The АОП data carries a bid COUNT (tenders/contracts), not individual bids → bids stays empty
--- in the core; kept so the per-offer model has a home if a source ever provides it.
-CREATE TABLE bids (
-  id           TEXT PRIMARY KEY,
-  tender_id    TEXT NOT NULL REFERENCES tenders(id),
-  lot_id       TEXT REFERENCES lots(id),
-  bidder_id    TEXT NOT NULL REFERENCES bidders(id),
-  amount       REAL NOT NULL,
-  currency     TEXT NOT NULL DEFAULT 'BGN',
-  is_winner    INTEGER NOT NULL DEFAULT 0,
-  submitted_at TEXT,
-  created_at   TEXT NOT NULL DEFAULT (datetime('now'))
-);
+-- NB: there is intentionally NO `bids` table. No available source (admin export or OCDS) publishes
+-- per-bidder offer lines — only an aggregate COUNT (`contracts.bids_received`) and, in OCDS, bid
+-- statistics (SME / electronic / foreign counts, captured in the OCDS staging). Re-introduce a bids
+-- table only if a per-offer source ever appears.
 
 CREATE TABLE contracts (
   id               TEXT PRIMARY KEY,       -- 'c:' || staging row id
@@ -96,6 +104,12 @@ CREATE TABLE contracts (
   amount_eur       REAL,                   -- canonical EUR, SAFE TO SUM; NULL = excluded (value_suspect)
   fx_converted     INTEGER NOT NULL DEFAULT 0,  -- 1 = amount_eur came from a foreign-currency market rate
   fx_rate          REAL,                   -- EUR per 1 unit of `currency` for foreign rows (amount × fx_rate = amount_eur)
+  lot_id           TEXT,                   -- domain lot id ('lot:'||УНП||':'||raw) when the award is lot-scoped; soft-links lots(id)
+  document_number  TEXT,                   -- Номер на документ
+  published_at     TEXT,                   -- Публикуван на
+  contract_subject TEXT,                   -- Предмет на договора (distinct from the procurement subject)
+  vat              TEXT,                   -- ДДС
+  sme              TEXT,                   -- изпълнителят е МСП (малко/средно предприятие)
   created_at       TEXT NOT NULL DEFAULT (datetime('now'))
 );
 
@@ -267,8 +281,9 @@ CREATE INDEX idx_tenders_status ON tenders(status);
 CREATE INDEX idx_tenders_published ON tenders(published_at);
 CREATE INDEX idx_lots_tender ON lots(tender_id);
 CREATE INDEX idx_bidders_eik_norm ON bidders(eik_normalized);
-CREATE INDEX idx_bids_tender ON bids(tender_id);
-CREATE INDEX idx_bids_bidder ON bids(bidder_id);
+CREATE INDEX idx_contracts_lot ON contracts(lot_id);
+CREATE INDEX idx_bidders_ekatte ON bidders(ekatte);
+CREATE INDEX idx_authorities_ekatte ON authorities(ekatte);
 CREATE INDEX idx_contracts_tender ON contracts(tender_id);
 CREATE INDEX idx_contracts_bidder ON contracts(bidder_id);
 CREATE INDEX idx_contracts_value_flag ON contracts(value_flag);
