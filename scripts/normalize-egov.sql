@@ -277,6 +277,22 @@ WHERE x.bidder_key IS NOT NULL
   AND EXISTS (SELECT 1 FROM tenders te WHERE te.id = 't:' || x.unp)
   AND EXISTS (SELECT 1 FROM bidders  b  WHERE b.id  = x.bidder_key);
 
+-- 6) Location enrichment from OCDS parties (raw_ocds_parties, populated by scripts/load-ocds.mjs).
+--    Match on ЕИК; take the most-recent non-null value (parties repeat across releases). OCDS covers
+--    2026+ entities, so authorities/bidders absent from OCDS keep NULL location until the Trade
+--    Register loader fills the rest. No-op when raw_ocds_parties is empty (admin-only import).
+UPDATE authorities SET
+  nuts       = COALESCE(nuts,       (SELECT p.region_nuts    FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.region_nuts    IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
+  settlement = COALESCE(settlement, (SELECT p.locality       FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.locality       IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
+  address    = COALESCE(address,    (SELECT p.street_address FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.street_address IS NOT NULL ORDER BY p.id DESC LIMIT 1))
+WHERE EXISTS (SELECT 1 FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat);
+
+UPDATE bidders SET
+  nuts       = COALESCE(nuts,       (SELECT p.region_nuts    FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.region_nuts    IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
+  settlement = COALESCE(settlement, (SELECT p.locality       FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.locality       IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
+  address    = COALESCE(address,    (SELECT p.street_address FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.street_address IS NOT NULL ORDER BY p.id DESC LIMIT 1))
+WHERE EXISTS (SELECT 1 FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized);
+
 -- Freshness boundary — "data current as of" per feed (latest real contract date + row count),
 -- for the UI and to verify the OCDS go-forward catch-up. Recomputed each run.
 DELETE FROM data_freshness;

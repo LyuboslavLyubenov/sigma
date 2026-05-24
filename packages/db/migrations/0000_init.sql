@@ -354,6 +354,31 @@ CREATE TABLE raw_egov_amendments (
   ted_link                 TEXT
 );
 
+-- OCDS parties (data.egov.bg OCDS feed) — full party records: ЕИК + address (city + NUTS region) +
+-- roles + contact. Captured by scripts/load-ocds.mjs; normalize-egov.sql enriches authorities/bidders
+-- location from here by ЕИК. Source 'ocds:%'.
+CREATE TABLE raw_ocds_parties (
+  id             INTEGER PRIMARY KEY,
+  source         TEXT NOT NULL,
+  dataset_uri    TEXT,
+  resource_uri   TEXT,
+  fetched_at     TEXT NOT NULL,
+  ocid           TEXT,                     -- release ocid (provenance)
+  party_id       TEXT,                     -- party id within the release
+  eik            TEXT,                     -- identifier.id when scheme = BG-EIK
+  scheme         TEXT,                     -- identifier.scheme
+  name           TEXT,
+  roles          TEXT,                     -- comma-joined OCDS roles (buyer/supplier/tenderer/…)
+  street_address TEXT,
+  locality       TEXT,                     -- settlement / city
+  postal_code    TEXT,
+  region_nuts    TEXT,                     -- NUTS region code
+  country        TEXT,
+  contact_name   TEXT,
+  contact_email  TEXT,
+  contact_phone  TEXT
+);
+
 -- ===================================================================================
 -- 3) REFERENCE — ECB euro reference rates for foreign-currency signing dates (scripts/load-fx.mjs)
 -- ===================================================================================
@@ -404,6 +429,8 @@ CREATE INDEX idx_egov_tenders_unp ON raw_egov_tenders(unp);
 CREATE INDEX idx_egov_tenders_source ON raw_egov_tenders(source);
 CREATE INDEX idx_egov_amend_contract ON raw_egov_amendments(unp, contract_number);
 CREATE INDEX idx_egov_amend_source ON raw_egov_amendments(source);
+CREATE INDEX idx_ocds_parties_eik ON raw_ocds_parties(eik);
+CREATE INDEX idx_ocds_parties_source ON raw_ocds_parties(source);
 
 -- ===================================================================================
 -- 5) VIEWS — contract_participants (parked owner attribution; SUM-safe per company).
