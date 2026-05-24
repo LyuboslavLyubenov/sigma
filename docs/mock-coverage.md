@@ -7,12 +7,14 @@
 >
 > Design prose in English; user-facing copy in **Bulgarian**.
 
-**Assessed 2026-05-24 (verified against a live local build).** Verdict: the eight core explorer pages
-are **largely buildable today** — all the analytics (leaderboards, breakdowns, flows, value timelines,
-search) and ~90 % of the visible fields map to populated columns. Of the gaps, **only per-bidder bid
-amounts are genuinely unavailable**; the rest (location, owners, EU-programme names, geo) are
-**sourceable from open, ЕИК-joinable data on data.egov.bg** — they are simply not ingested yet (see
-[Gaps](#gaps--most-are-sourceable-from-open-data)).
+**Assessed 2026-05-24; updated after the multi-source ingestion.** Verdict: the eight core explorer
+pages are **buildable today** — all the analytics and ~90 % of the visible fields map to populated
+columns. The `feat/ingest-all-sources` work then **closed most of the gaps**: location + region (OCDS
+parties + the NUTS reference), and EU-programme names + execution timeline (recovered from the admin
+full-capture). The **Trade Register** layer (company seat, owners, beneficial owners) is **postponed**
+— schema + loader + scheduled job are ready but it is **treated as not-available** for now, awaiting an
+admin full export. Only **per-bidder bid amounts** are unavailable anywhere. See
+[Gaps](#gaps--status-after-multi-source-ingestion).
 
 ## Basis & caveats
 
@@ -50,25 +52,27 @@ region-from-name, and hand-curated taxonomies are **out**.
 | [contract.html](../mocks/v1/contract.html) | Value timeline (прогнозна→при сключване→текуща + deltas), party panels with totals + cross-pair links, contract №, УНП, предмет, обект, primary CPV, procedure, bid count, EU flag, signing date, offer deadline | programme name; "Срок за изпълнение"/"Очакван край"; secondary CPV; "Лот 6 от 6" + per-lot table |
 | [flows.html](../mocks/v1/flows.html) | Sankey authority→contractor weighted by Σ value + count, node totals, all filters (sector/year/financing/top-N), top-10 table, click-through | none — this is `GROUP BY authority_id, bidder_id` |
 
-## Gaps — most are sourceable from open data
+## Gaps — status after multi-source ingestion
 
-A live survey of **data.egov.bg** and the national registers (May 2026 — hitting the JSON API and
-downloading samples) found that **most gaps below are fillable from open, CC0-licensed, ЕИК-joinable
-data**; they are just not in the pipeline today. None requires a heuristic — every fill joins on a
-stable key (ЕИК / ЕКАТТЕ). Only one is genuinely unavailable.
+The `feat/ingest-all-sources` work ingested the open, ЕИК/ЕКАТТЕ-joinable sources (no heuristics).
+Most gaps are now **closed or partially covered**; the rest are **postponed/deferred** for concrete
+reasons. (Live counts are from the local build; coverage of the open feeds grows via the scheduled job.)
 
-| Gap (where it appears) | In D1 today | Open-data source (join key) | Verdict |
-| --- | --- | --- | --- |
-| **Geographic location** — authority/company city & region (lists, headers, search, map) | No (`region` 0/4,868) | OCDS `parties[].address` (city + NUTS, ~100 % of procurement parties, by ЕИК); Trade Register XML seat + ЕКАТТЕ; NSI ЕКАТТЕ classifier | **Sourceable (open)** — needs ingestion |
-| **Consortium members / "N участника"** | No (`bidder_members` = 0) | ИСУН dataset (roles incl. „член на обединение", by ЕИК); OCDS `subcontractor` role | **Sourceable (open)** — needs ingestion |
-| **Beneficial owners / persons layer** | No | Trade Register CC0 XML — `Partners`, `SoleCapitalOwner`, `Managers`, `ActualOwners` (ЗМИП beneficial owners), personal IDs hashed (by ЕИК) | **Sourceable (open)** — daily deltas, must accumulate; un-masked PII is the only paid part (not needed) |
-| **EU-funding programme name** | No (only 0/1 flag) | ИСУН dataset (beneficiary/partner ЕИК + programme + EU/own/total values) | **Sourceable (open)** — join by ЕИК (beneficiary-level, not per-УНП) |
-| **Execution timeline** (duration / expected end) | No | Not in the admin export; OCDS `contracts.period` is sparse | **Mostly unavailable** |
-| **Price-anomaly / concentration signals** | No (`risk_scores` = 0) | Computable from data already held (CPV price distribution) — **parked by product decision**, not data-blocked | **Computable; parked** |
-| **Individual / losing bid amounts** ("who else bid") | No (`bids` = 0) | **None** — OCDS exposes only aggregate bid *statistics* (count / SME / foreign); per-bidder lines are not published openly | **Genuinely unavailable** |
+| Gap (where it appears) | Status | Source |
+| --- | --- | --- |
+| **Geographic location** — authority/company city & region | **Done (partial)** — city/NUTS on 2,261 authorities + ~3,992 bidders; `authorities.region` (област) on 2,241 | OCDS `parties[].address` (by ЕИК) + `nuts_regions` reference |
+| **EU-funding programme name** | **Done** — `eu_programme` on 25,954 contracts (+ tenders) | the **admin export** (full-capture) — not ИСУН after all |
+| **Execution timeline** (duration / dates) | **Done** — `duration_days` (166k) + tender `start_date`/`end_date` | admin export full-capture |
+| **Company seat + owners + beneficial owners** | **Postponed** — schema/loader/scheduled job ready, **treated as NOT available** | Trade Register; awaiting an admin full export (see [etl-pipeline.md](etl-pipeline.md#multi-source-expansion-may-2026)) |
+| **Consortium members / "N участника"** | **Partial** — per-contract `awarded_to_group` (real); no member breakdown | admin group-award flag; ИСУН deferred |
+| **Price-anomaly / concentration signals** | **Computable; parked** (product decision) | computable from held data |
+| **Individual / losing bid amounts** ("who else bid") | **Unavailable anywhere** — only counts/statistics are published | — |
 
-So under the open-data lens the only hard "no" is **per-bidder bid amounts**. Everything else is a
-matter of *ingestion effort*, not data availability — all CC0/open and ЕИК-joinable (no heuristics).
+**Deferred sources.** **ИСУН** (EU-funds project detail / consortium roles) — its data.egov.bg dataset
+URI is not API-discoverable, and its headline value (programme **name**) is already in the admin export.
+**Settlement-level ЕКАТТЕ classifier** — the open resource is dead; TR seat names + `nuts_regions` cover
+the need. **Trade Register full register** — postponed pending an admin full export (the open feed is
+daily deltas from 2022-09 only). The only item **unavailable from any source** is **per-bidder bids**.
 
 ## Sourcing the gaps (data.egov.bg + registers)
 

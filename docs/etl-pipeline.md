@@ -81,6 +81,58 @@ the open data, values matching 99.98 %). We chose **admin-only** and do **not** 
 full pre-2020 coverage is ever needed, the retired portal CSV loader can add those rows as thin
 (procedure-less) contracts.
 
+## Multi-source expansion (May 2026)
+
+The pipeline grew from "admin-only" to a **multi-source** model under two standing principles:
+**capture-all** (every field a source offers lands in raw staging, even with no UI yet — the domain
+promotes what we use) and **live ETL** (each open feed has an idempotent periodic delta job; heavy
+backfills stay one-time CLI). Branch: `feat/ingest-all-sources`.
+
+**Admin export — now fully captured.** `load-admin.mjs` maps **every** column of all three CSVs
+(Contracts 57 / Tenders 52 / Annexes 37) into `raw_egov_*`. Newly promoted to the domain: contract
+`eu_programme` (operational-programme name — was thought external-only), `duration_days`, `winner_size`,
+`subcontractor_eik/name/value`, `bids_sme/bids_rejected/bids_non_eea`, `eauction/framework/accelerated/
+strategic`; tender `place_of_performance` (a **NUTS code** — tender-level region), `start_date/end_date/
+duration`, tender-level `eu_programme`, `green/social/innovation/cancelled`. The empty **`bids` table was
+dropped** (no source publishes per-offer bids; only counts/statistics).
+
+**OCDS parties** (`load-ocds.mjs` → `raw_ocds_parties`). Every release party (ЕИК, name, roles, full
+address incl. NUTS) is captured; `normalize-egov.sql` enriches `authorities`/`bidders`
+`nuts/settlement/address` by ЕИК (the 2026+ entities OCDS covers).
+
+**Trade Register** (`load-tr.mjs` → `raw_tr_companies/_owners/_actual_owners`; domain `company_owners`
++ `beneficial_owners`). Parses the Агенция по вписванията **daily XML deltas** (data.egov.bg
+`2df0c2af-…`) via `fast-xml-parser`: company seat (+ ЕКАТТЕ), partners/sole owner/managers, and
+**ActualOwners** (beneficial owners, чл. 63 ЗМИП). Personal IDs are **hashed at source** — only name +
+country stored. `normalize` enriches bidder seat/legal_form by ЕИК and (re)builds the owner tables.
+
+**Full backfill is POSTPONED (decided 2026-05-24).** The open API is only daily *deltas* from
+**2022-09-01** (no full-snapshot dump exists; the earliest files are normal-sized deltas, and the
+"monthly extract" dataset is a different — property — register). Importing all ~1,686 deltas would
+still miss companies dormant since before 2022-09. So instead we will load an **admin full export of
+the entire register** (being obtained separately) as the one-time base; then `load-tr.mjs` (daily
+deltas — `--all`/`--limit`, chunked resumable apply) plus the scheduled job keep it current — that is
+the "delta updates for new data" path. **Until that base is loaded, treat the Trade Register as NOT
+available** for functionality decisions. The loader, `raw_tr_*` staging, `company_owners`/
+`beneficial_owners` domain tables and the scheduled job are all ready and simply unused; `import.mjs`
+does not run `load-tr`, so a default rebuild has no TR data.
+
+**NUTS reference** (`load-nuts.sql` → `nuts_regions`). The stable Eurostat/НСИ classification (28
+области → 6 NUTS2 → 2 NUTS1) labels the OCDS-sourced NUTS codes and fills `authorities.region`.
+
+**Scheduled live ETL** ([.github/workflows/etl-refresh.yml](../.github/workflows/etl-refresh.yml)).
+A daily GitHub Actions cron runs the CLI delta loaders against remote D1 (OCDS catch-up + TR daily
+window + NUTS seed + derive-amendments + normalize). The loaders need Node + a filesystem + XML
+parsing, so CI cron is their home; the `apps/etl` Worker stays for light in-Worker tasks. No-ops until
+`CLOUDFLARE_API_TOKEN` + a real `database_id` are configured.
+
+**Deferred (documented blockers).** **ИСУН** (EU-funds project detail / consortium roles): its
+data.egov.bg dataset URI is **not API-discoverable** (`listDatasets` ignores `org_id`; org 104's
+reachable datasets aren't ИСУН) and the SPA isn't reliably scriptable — and its headline value, the
+programme **name**, is already captured from the admin export, so it's low priority. **Settlement-level
+ЕКАТТЕ classifier**: the open data.egov.bg ЕКАТТЕ resource is dead (returns empty); the TR already
+supplies readable settlement/municipality names, and `nuts_regions` covers region aggregation.
+
 ## Currency (not one unit)
 
 Unlike the xlsx (all EUR), the admin export spans the **BGN→EUR switch**: 2020–2025 contracts are
