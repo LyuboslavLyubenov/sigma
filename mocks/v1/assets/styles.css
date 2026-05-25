@@ -1104,9 +1104,7 @@ details.row .body .signal .why { color: var(--ink-mid); }
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--accent);
-  margin: var(--s-5) 0 var(--s-2);
-  padding-bottom: var(--s-2);
-  border-bottom: 1px solid var(--ink);
+  margin: var(--s-5) 0 var(--s-3);
 }
 
 /* Alert strip — adapt to paper */

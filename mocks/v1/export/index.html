@@ -1111,9 +1111,7 @@ details.row .body .signal .why { color: var(--ink-mid); }
   letter-spacing: 0.16em;
   text-transform: uppercase;
   color: var(--accent);
-  margin: var(--s-5) 0 var(--s-2);
-  padding-bottom: var(--s-2);
-  border-bottom: 1px solid var(--ink);
+  margin: var(--s-5) 0 var(--s-3);
 }
 
 /* Alert strip — adapt to paper */
@@ -1314,7 +1312,15 @@ details.row .body .signal .why { color: var(--ink-mid); }
     .contract-row td.subj .eu { display: inline-block; background: var(--accent-bg); border: 1px solid var(--info); color: var(--link-hover); font-size: 11px; font-weight: 700; padding: 0 6px; margin-left: 6px; vertical-align: middle; line-height: 1.5; text-transform: uppercase; letter-spacing: 0.04em; }
 
 /* ---- page-local: methodology.html ---- */
-/* Page-local: ToC sidebar + glossary grid */
+/* Page-local: document version byline */
+    .doc-version {
+      margin: 16px 0 0;
+      font-family: var(--font-mono);
+      font-size: 12px;
+      letter-spacing: 0.02em;
+      color: var(--text-faint);
+    }
+    /* Page-local: ToC sidebar + glossary grid */
     .toc {
       position: sticky;
       top: 24px;
@@ -1592,7 +1598,7 @@ details.row .body .signal .why { color: var(--ink-mid); }
     <main id="main-home">
 
     <section class="page-header">
-      <p class="kicker">Обзор на пазара · 2020–2026</p>
+      <p class="kicker">Обществени поръчки</p>
       <h1>Къде отиват <em>парите</em> на държавата?</h1>
       <p class="lede">
         Сигма показва кой какво купува от държавата и общините и на кого плаща — във всички
@@ -1777,7 +1783,7 @@ details.row .body .signal .why { color: var(--ink-mid); }
     <main id="main-authorities">
 
     <section class="page-header">
-      <p class="kicker">4 868 възложители · 2020–2026</p>
+      <p class="kicker">4 868 възложители</p>
       <h1>Институции</h1>
       <p class="lede">
         Всяка институция, която е възложила поне един договор. Подреди ги по похарченото
@@ -2101,7 +2107,7 @@ details.row .body .signal .why { color: var(--ink-mid); }
     <main id="main-companies">
 
     <section class="page-header">
-      <p class="kicker">17 448 изпълнители · 2020–2026</p>
+      <p class="kicker">17 448 изпълнители</p>
       <h1>Компании</h1>
       <p class="lede">
         Всяка компания, която е спечелила поне един договор по обществена поръчка. По
@@ -2430,7 +2436,7 @@ details.row .body .signal .why { color: var(--ink-mid); }
     <main id="main-contracts">
 
     <section class="page-header">
-      <p class="kicker">190 429 договора · обособени позиции включени · 2020–2026</p>
+      <p class="kicker">190 429 договора</p>
       <h1>Договори</h1>
       <p class="lede">
         Всеки сключен договор от обществена поръчка. Всеки агрегат другаде на платформата —
@@ -3195,9 +3201,6 @@ details.row .body .signal .why { color: var(--ink-mid); }
           </tr>
         </tbody>
       </table>
-      <p class="source">
-        Най-големи потоци, всички сектори, 2020–2026. Данни към 22.05.2026.
-      </p>
     </section>
 
   </main>
@@ -3214,13 +3217,14 @@ details.row .body .signal .why { color: var(--ink-mid); }
     <main id="main-methodology">
 
     <section class="page-header">
-      <p class="kicker">Версия 1 · последна редакция 22 май 2026 г.</p>
+      <p class="kicker">Как четем данните</p>
       <h1>Методология и речник</h1>
       <p class="lede">
         Сигма обединява публични данни от Регистъра на обществените поръчки (АОП / ЦАИС ЕОП). На
         тази страница описваме откъде идват числата, как се сглобяват, какво показваме като
         неутрален факт и какво — нарочно — не показваме в първата версия.
       </p>
+      <p class="doc-version">Издание 1 · 22 май 2026 г.</p>
     </section>
 
     <div class="split">
