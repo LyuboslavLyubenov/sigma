@@ -1,6 +1,6 @@
 import { Link, useSearchParams } from 'react-router';
 import { count, date, money } from '@sigma/shared';
-import { getContractFacets, listContracts, type ContractSort } from '@sigma/db';
+import { contractsSummary, getContractFacets, listContracts, type ContractSort } from '@sigma/db';
 import type { Route } from './+types/contracts';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { PageHeader } from '../components/PageHeader';
@@ -10,6 +10,7 @@ import { Pagination } from '../components/Pagination';
 import { Callout } from '../components/ui';
 import { getMulti, pageNav, withParams, PAGE_SIZE } from '../lib/filters';
 import { publicCache } from '../lib/cache';
+import { cachedJson } from '../lib/kv';
 
 const VALUE_BUCKETS = [
   { value: 'lt100k', label: 'Под 100 хил. €' },
@@ -47,8 +48,14 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     cursor: sp.get('cursor'),
     pageSize: PAGE_SIZE.contracts,
   };
-  const db = context.cloudflare.env.DB;
-  const [result, facets] = await Promise.all([listContracts(db, params), getContractFacets(db)]);
+  const { env } = context.cloudflare;
+  // The filtered count/sum is the only expensive scan; cache it (filter-only key, ignoring sort/page).
+  const sumKey = `csum:${JSON.stringify([params.years, params.sectors, params.procedureGroups, params.valueBucket, params.eu, params.authority, params.bidder])}`;
+  const [summary, facets] = await Promise.all([
+    cachedJson(env.CACHE, sumKey, 1800, () => contractsSummary(env.DB, params)),
+    cachedJson(env.CACHE, 'cfacets:v1', 3600, () => getContractFacets(env.DB)),
+  ]);
+  const result = await listContracts(env.DB, params, summary);
   return { result, facets };
 }
 

@@ -140,6 +140,8 @@ export interface ContractListResult extends Page<ContractListItem> {
 export async function listContracts(
   db: D1Database,
   p: ContractListParams,
+  // The caller may inject a (cached) summary to skip the COUNT/SUM scan — see apps/web KV caching.
+  summaryOverride?: { total: number; valueEur: number; suspect: number },
 ): Promise<ContractListResult> {
   const sort = SORTS[p.sort ?? 'value-desc'];
   const pageSize = p.pageSize ?? 15;
@@ -159,7 +161,7 @@ export async function listContracts(
   let rows = results.slice(0, pageSize);
   if (ks.reverse) rows = rows.reverse();
 
-  const summary = await contractsSummary(db, p);
+  const summary = summaryOverride ?? (await contractsSummary(db, p));
   const cursors = pageCursors({
     rows: rows.map((r) => ({ sortValue: r.sort_value, id: r.id })),
     hasMore,

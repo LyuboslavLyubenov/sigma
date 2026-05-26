@@ -5,6 +5,7 @@ import type { Route } from './+types/home';
 import { PageHeader } from '../components/PageHeader';
 import { TotalsStrip } from '../components/TotalsStrip';
 import { publicCache } from '../lib/cache';
+import { cachedJson } from '../lib/kv';
 
 export function meta(_: Route.MetaArgs) {
   return [
@@ -22,7 +23,9 @@ export function headers() {
 }
 
 export async function loader({ context }: Route.LoaderArgs) {
-  return getHomeData(context.cloudflare.env.DB);
+  const { env } = context.cloudflare;
+  // The whole home payload is identical for every visitor between refreshes — memoise it in KV.
+  return cachedJson(env.CACHE, 'home:v1', 3600, () => getHomeData(env.DB));
 }
 
 export default function Home({ loaderData }: Route.ComponentProps) {

@@ -1,5 +1,6 @@
 import {
   isRouteErrorResponse,
+  Link,
   Links,
   Meta,
   Outlet,
@@ -11,6 +12,7 @@ import type { Route } from './+types/root';
 import { useNonce } from './nonce';
 import { SiteHeader } from './components/SiteHeader';
 import { SiteFooter } from './components/SiteFooter';
+import { PageHeader } from './components/PageHeader';
 import './app.css';
 
 // The editorial design uses a system serif/mono/sans stack (see app.css @theme) — no webfont request.
@@ -56,29 +58,35 @@ export default function App({ loaderData }: Route.ComponentProps) {
   );
 }
 
+// Errors render inside the chrome so a 404/500 still looks like Сигма and keeps the nav.
 export function ErrorBoundary({ error }: Route.ErrorBoundaryProps) {
-  let message = 'Oops!';
-  let details = 'An unexpected error occurred.';
-  let stack: string | undefined;
-
-  if (isRouteErrorResponse(error)) {
-    message = error.status === 404 ? '404' : 'Error';
-    details =
-      error.status === 404 ? 'The requested page could not be found.' : error.statusText || details;
-  } else if (import.meta.env.DEV && error && error instanceof Error) {
-    details = error.message;
-    stack = error.stack;
-  }
+  const is404 = isRouteErrorResponse(error) && error.status === 404;
+  const kicker = is404 ? 'Грешка 404' : 'Грешка';
+  const title = is404 ? 'Страницата не е намерена' : 'Възникна грешка';
+  const lede = is404
+    ? 'Записът не съществува или адресът е променен. Започни от търсенето или от някой от списъците.'
+    : 'Нещо се обърка при зареждането. Опитай отново или се върни към началото.';
+  const stack = import.meta.env.DEV && error instanceof Error ? error.stack : undefined;
 
   return (
-    <main className="pt-16 p-4 container mx-auto">
-      <h1>{message}</h1>
-      <p>{details}</p>
-      {stack && (
-        <pre className="w-full p-4 overflow-x-auto">
-          <code>{stack}</code>
-        </pre>
-      )}
-    </main>
+    <>
+      <a className="skip" href="#main">
+        Към съдържанието
+      </a>
+      <SiteHeader />
+      <main id="main">
+        <PageHeader kicker={kicker} title={title} lede={lede} />
+        <p className="muted">
+          <Link to="/">Начало</Link> · <Link to="/companies">Компании</Link> ·{' '}
+          <Link to="/authorities">Институции</Link> · <Link to="/contracts">Договори</Link>
+        </p>
+        {stack && (
+          <pre className="mono small" style={{ overflowX: 'auto', marginTop: 'var(--s-5)' }}>
+            <code>{stack}</code>
+          </pre>
+        )}
+      </main>
+      <SiteFooter />
+    </>
   );
 }

@@ -1,0 +1,141 @@
+// Sitemaps — streamed XML (the corpus is large: 4.9k authorities, 17k companies, 190k contracts).
+// A sitemap index points at per-type sitemaps; contracts paginate under the 50k-URL limit. URLs use
+// the same slugs as the routes (companySlug encodes name-keyed bidders).
+
+import { companySlug } from './identity';
+
+const HEAD =
+  '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">\n';
+const TAIL = '</urlset>\n';
+const CHUNK = 5000;
+
+export const CONTRACTS_PER_SITEMAP = 45000;
+
+function xmlEscape(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
+function streamUrls(
+  origin: string,
+  fetchChunk: (after: string) => Promise<{ slugs: string[]; next: string | null }>,
+): Response {
+  const enc = new TextEncoder();
+  let after = '';
+  let done = false;
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(enc.encode(HEAD));
+    },
+    async pull(controller) {
+      if (done) return;
+      const { slugs, next } = await fetchChunk(after);
+      if (slugs.length === 0 || next === null) {
+        if (slugs.length) controller.enqueue(enc.encode(slugs.join('')));
+        controller.enqueue(enc.encode(TAIL));
+        done = true;
+        controller.close();
+        return;
+      }
+      controller.enqueue(enc.encode(slugs.join('')));
+      after = next;
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=86400',
+    },
+  });
+}
+
+/** Streamed sitemap of all authority profile URLs. */
+export function streamAuthoritySitemap(db: D1Database, origin: string): Response {
+  return streamUrls(origin, async (after) => {
+    const { results } = await db
+      .prepare(
+        `SELECT authority_id FROM authority_totals WHERE authority_id > ? ORDER BY authority_id LIMIT ?`,
+      )
+      .bind(after, CHUNK)
+      .all<{ authority_id: string }>();
+    const slugs = results.map(
+      (r) =>
+        `<url><loc>${xmlEscape(origin)}/authorities/${xmlEscape(r.authority_id.replace(/^auth:/, ''))}</loc></url>\n`,
+    );
+    const last = results[results.length - 1];
+    return { slugs, next: results.length < CHUNK || !last ? null : last.authority_id };
+  });
+}
+
+/** Streamed sitemap of all company profile URLs. */
+export function streamCompanySitemap(db: D1Database, origin: string): Response {
+  return streamUrls(origin, async (after) => {
+    const { results } = await db
+      .prepare(
+        `SELECT bidder_id FROM company_totals WHERE bidder_id > ? ORDER BY bidder_id LIMIT ?`,
+      )
+      .bind(after, CHUNK)
+      .all<{ bidder_id: string }>();
+    const slugs = results.map(
+      (r) =>
+        `<url><loc>${xmlEscape(origin)}/companies/${xmlEscape(companySlug(r.bidder_id))}</loc></url>\n`,
+    );
+    const last = results[results.length - 1];
+    return { slugs, next: results.length < CHUNK || !last ? null : last.bidder_id };
+  });
+}
+
+/** Streamed sitemap of one contracts page (dense rowid range), under the 50k-URL limit. */
+export function streamContractSitemap(db: D1Database, origin: string, page: number): Response {
+  const lo = (page - 1) * CONTRACTS_PER_SITEMAP;
+  const hi = page * CONTRACTS_PER_SITEMAP;
+  let after = lo;
+  let done = false;
+  const enc = new TextEncoder();
+  const stream = new ReadableStream<Uint8Array>({
+    start(c) {
+      c.enqueue(enc.encode(HEAD));
+    },
+    async pull(controller) {
+      if (done) return;
+      const { results } = await db
+        .prepare(
+          `SELECT rowid AS rid, id FROM contracts WHERE rowid > ? AND rowid <= ? ORDER BY rowid LIMIT ?`,
+        )
+        .bind(after, hi, CHUNK)
+        .all<{ rid: number; id: string }>();
+      if (results.length === 0) {
+        controller.enqueue(enc.encode(TAIL));
+        done = true;
+        controller.close();
+        return;
+      }
+      const block = results
+        .map(
+          (r) =>
+            `<url><loc>${xmlEscape(origin)}/contracts/${xmlEscape(r.id.replace(/^c:/, ''))}</loc></url>\n`,
+        )
+        .join('');
+      controller.enqueue(enc.encode(block));
+      after = results[results.length - 1]!.rid;
+      if (results.length < CHUNK) {
+        controller.enqueue(enc.encode(TAIL));
+        done = true;
+        controller.close();
+      }
+    },
+  });
+  return new Response(stream, {
+    headers: {
+      'Content-Type': 'application/xml; charset=utf-8',
+      'Cache-Control': 'public, max-age=86400',
+    },
+  });
+}
+
+/** Number of contract sitemap pages (from the corpus size in home_totals). */
+export async function contractSitemapPages(db: D1Database): Promise<number> {
+  const row = await db
+    .prepare(`SELECT contracts FROM home_totals WHERE id = 1`)
+    .first<{ contracts: number }>();
+  return Math.max(1, Math.ceil((row?.contracts ?? 0) / CONTRACTS_PER_SITEMAP));
+}
