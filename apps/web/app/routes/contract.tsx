@@ -1,0 +1,382 @@
+import { Link } from 'react-router';
+import { count, longDate, money, signedPct } from '@sigma/shared';
+import { contractIdFromSlug, getContract } from '@sigma/db';
+import type { Route } from './+types/contract';
+import { Breadcrumbs } from '../components/Breadcrumbs';
+import { PageHeader } from '../components/PageHeader';
+import { FactsList } from '../components/FactsList';
+import { Chip, Flag, Section, SourceLine } from '../components/ui';
+import { publicCache } from '../lib/cache';
+
+export function meta({ data }: Route.MetaArgs) {
+  const c = data?.contract;
+  return [
+    { title: `${c?.subject ?? 'Договор'} — Сигма` },
+    {
+      name: 'description',
+      content: c
+        ? `Договор по УНП ${c.unp} между ${c.authority.name} и ${c.bidder.displayName}.`
+        : '',
+    },
+  ];
+}
+
+export function headers() {
+  return { 'Cache-Control': publicCache(3600) };
+}
+
+export async function loader({ params, context }: Route.LoaderArgs) {
+  const contract = await getContract(context.cloudflare.env.DB, contractIdFromSlug(params.id));
+  if (!contract) throw new Response('Not Found', { status: 404 });
+  return { contract };
+}
+
+const SUSPECT = <span className="suspect">данните се преглеждат</span>;
+
+export default function Contract({ loaderData }: Route.ComponentProps) {
+  const c = loaderData.contract;
+  const v = c.value;
+  const crumbId = c.unp || c.contractNumber || c.id;
+  const betweenParties = `/contracts?authority=${c.authority.eik}&bidder=${c.bidder.slug}`;
+
+  return (
+    <>
+      <Breadcrumbs
+        items={[
+          { label: 'Начало', to: '/' },
+          { label: 'Договори', to: '/contracts' },
+          { label: crumbId },
+        ]}
+      />
+      <main id="main">
+        <PageHeader
+          kicker={
+            <>
+              УНП {c.unp}
+              {c.contractNumber && <> · Договор № {c.contractNumber}</>}
+              {c.lotLabel && <> · обособена позиция {c.lotLabel}</>}
+            </>
+          }
+          title={c.subject}
+          lede={
+            <>
+              {c.signedAt ? `Сключен на ${longDate(c.signedAt)} ` : ''}между{' '}
+              <Link to={`/authorities/${c.authority.slug}`}>{c.authority.name}</Link> и{' '}
+              <Link to={`/companies/${c.bidder.slug}`}>{c.bidder.displayName}</Link>.
+            </>
+          }
+        />
+
+        <Section
+          id="values"
+          title="Стойности във времето"
+          hint='Договорът минава през няколко стойности: прогноза на възложителя, цена при подписване и текуща стойност. Показани в евро. „Стойност" в списъците по подразбиране е текущата (изчистена) стойност.'
+        >
+          <div className="value-history">
+            <div className="vh">
+              <div className="step">Прогнозна {c.lots ? '(цялата преписка)' : ''}</div>
+              <strong className="num">
+                {v.estimatedEur != null ? money(v.estimatedEur) : '—'}
+              </strong>
+              {c.lots?.numLots ? (
+                <div className="sub">
+                  оценка за всичките {count(c.lots.numLots)} обособени позиции
+                </div>
+              ) : null}
+            </div>
+            <div className="vh">
+              <div className="step">При сключване</div>
+              <strong className="num">
+                {v.signingEur != null ? money(v.signingEur) : SUSPECT}
+              </strong>
+            </div>
+            <div
+              className={`vh now${v.deltaPct != null && v.deltaPct >= 0.5 ? ' flag' : v.deltaPct != null && v.deltaPct < 0 ? ' pos' : ''}`}
+            >
+              <div className="step">Текуща стойност</div>
+              <strong className="num">
+                {v.currentEur != null ? money(v.currentEur) : SUSPECT}
+              </strong>
+              {v.deltaPct != null && (
+                <div className="delta">{signedPct(v.deltaPct)} спрямо сключване</div>
+              )}
+            </div>
+          </div>
+          {v.suspect && (
+            <p className="small muted">
+              Стойност с непотвърдена достоверност (анекс или явна грешка) — изключена от сумите и
+              скрита, вместо да се показва съмнително число. Виж{' '}
+              <Link to="/methodology">методология</Link>.
+            </p>
+          )}
+        </Section>
+
+        <Section id="who" title="Възложител и изпълнител">
+          <div className="two-col">
+            <div>
+              <h4>Възложител</h4>
+              <p style={{ fontSize: 18, fontWeight: 700, margin: '6px 0 2px' }}>
+                <Link to={`/authorities/${c.authority.slug}`}>{c.authority.name}</Link>
+              </p>
+              <p className="small muted" style={{ margin: '0 0 8px' }}>
+                {c.authority.typeLabel && <Chip>{c.authority.typeLabel}</Chip>}
+                {c.authority.settlement && <> {c.authority.settlement}</>}
+              </p>
+              <ul className="linklist">
+                <li>
+                  <Link to={`/contracts?authority=${c.authority.eik}`}>
+                    → Всички {count(c.authority.totalContracts)} договора на институцията (
+                    {money(c.authority.totalEur)})
+                  </Link>
+                </li>
+                <li>
+                  <Link to={betweenParties}>
+                    → Договори между тази институция и този изпълнител
+                  </Link>
+                </li>
+              </ul>
+            </div>
+            <div>
+              <h4>Изпълнител</h4>
+              <p style={{ fontSize: 18, fontWeight: 700, margin: '6px 0 2px' }}>
+                <Link to={`/companies/${c.bidder.slug}`}>{c.bidder.displayName}</Link>
+              </p>
+              <p className="small muted" style={{ margin: '0 0 8px' }}>
+                {c.bidder.eik ? (
+                  <>
+                    ЕИК <span className="mono">{c.bidder.eik}</span>
+                  </>
+                ) : (
+                  'непотвърден ЕИК'
+                )}
+                {c.bidder.settlement && <> · {c.bidder.settlement}</>}
+                {c.bidder.kind === 'consortium' && (
+                  <>
+                    {' '}
+                    · <Chip>обединение</Chip>
+                  </>
+                )}
+                {c.bidder.sector && (
+                  <>
+                    {' '}
+                    · <Chip>{c.bidder.sector.short}</Chip>
+                  </>
+                )}
+              </p>
+              <ul className="linklist">
+                <li>
+                  <Link to={`/contracts?bidder=${c.bidder.slug}`}>
+                    → Всички {count(c.bidder.totalContracts)} договора на изпълнителя (
+                    {money(c.bidder.totalEur)})
+                  </Link>
+                </li>
+                <li>
+                  <Link to={betweenParties}>
+                    → Договори между този изпълнител и тази институция
+                  </Link>
+                </li>
+              </ul>
+            </div>
+          </div>
+        </Section>
+
+        <Section id="facts" title="Подробности">
+          <FactsList
+            rows={[
+              c.contractNumber && {
+                term: 'Номер на договор',
+                value: c.contractNumber,
+                sub: c.documentNumber ? `· документ № ${c.documentNumber}` : undefined,
+              },
+              { term: 'УНП на преписката', value: <span className="mono">{c.unp}</span> },
+              c.lotLabel && { term: 'Обособена позиция', value: c.lotLabel },
+              { term: 'Предмет', value: c.subject },
+              c.contractKind && { term: 'Обект', value: c.contractKind },
+              c.cpvCode && {
+                term: 'CPV',
+                value: (
+                  <>
+                    <span className="mono">{c.cpvCode}</span>
+                    {c.cpvDescription ? ` ${c.cpvDescription}` : ''}
+                  </>
+                ),
+                sub: 'вторичен CPV не се публикува в източника',
+              },
+              c.sector && { term: 'Сектор', value: c.sector.short },
+              { term: 'Процедура', value: c.procedureLabel },
+              {
+                term: 'Брой оферти',
+                value:
+                  c.bidsReceived != null ? (
+                    count(c.bidsReceived)
+                  ) : (
+                    <span className="muted">не е посочен в данните</span>
+                  ),
+                sub: 'самите оферти и техните стойности не са в АОП',
+              },
+              {
+                term: 'ЕС финансиране',
+                value:
+                  c.euFunded == null ? (
+                    <span className="muted">няма данни</span>
+                  ) : c.euFunded ? (
+                    <Flag variant="soft">да</Flag>
+                  ) : (
+                    <Flag variant="soft">не</Flag>
+                  ),
+                sub: c.euProgramme ?? undefined,
+              },
+            ]}
+          />
+        </Section>
+
+        <Section id="dates" title="Дати и срокове">
+          <FactsList
+            rows={[
+              {
+                term: 'Подписан на',
+                value: c.signedAt ? (
+                  longDate(c.signedAt)
+                ) : (
+                  <span className="muted">не е наличен</span>
+                ),
+              },
+              {
+                term: 'Публикуван в регистъра',
+                value: c.publishedAt ? (
+                  longDate(c.publishedAt)
+                ) : (
+                  <span className="muted">не е наличен</span>
+                ),
+              },
+              {
+                term: 'Срок за изпълнение',
+                value:
+                  c.durationDays != null ? (
+                    `${count(c.durationDays)} дни`
+                  ) : (
+                    <span className="muted">не е наличен за този запис</span>
+                  ),
+              },
+              {
+                term: 'Начална дата',
+                value: c.startDate ? (
+                  longDate(c.startDate)
+                ) : (
+                  <span className="muted">не е налична</span>
+                ),
+              },
+              {
+                term: 'Очакван край',
+                value: c.endDate ? (
+                  longDate(c.endDate)
+                ) : (
+                  <span className="muted">не е налична</span>
+                ),
+              },
+            ]}
+          />
+        </Section>
+
+        {c.lots && c.lots.rows.length > 0 && (
+          <Section
+            id="lots"
+            title="Обособени позиции по преписката"
+            hint={
+              <>
+                Преписка <span className="mono">{c.lots.unp}</span> е разделена на обособени
+                позиции. Връзката договор↔лот в данните е приблизителна — съпоставена по
+                идентификатор на позицията (вж. <Link to="/methodology">методология</Link>).
+              </>
+            }
+          >
+            <div className="table-wrap">
+              <table className="lot-table">
+                <thead>
+                  <tr>
+                    <th scope="col" style={{ width: 60 }}>
+                      Лот
+                    </th>
+                    <th scope="col">Участък</th>
+                    <th scope="col">Изпълнител</th>
+                    <th scope="col" className="num">
+                      Прогнозна
+                    </th>
+                    <th scope="col" className="num">
+                      При сключване
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {c.lots.rows.map((l) => (
+                    <tr key={l.lotLabel} className={l.isCurrent ? 'current' : undefined}>
+                      <td className="rank">{l.lotLabel}</td>
+                      <td>
+                        {l.isCurrent ? (
+                          <strong>{l.subject}</strong>
+                        ) : l.contractId ? (
+                          <Link to={`/contracts/${l.contractId}`}>{l.subject}</Link>
+                        ) : (
+                          l.subject
+                        )}
+                      </td>
+                      <td>
+                        {l.contractorSlug ? (
+                          l.isCurrent ? (
+                            <strong>{l.contractorName}</strong>
+                          ) : (
+                            <Link to={`/companies/${l.contractorSlug}`}>{l.contractorName}</Link>
+                          )
+                        ) : (
+                          <span className="muted">няма сключен договор</span>
+                        )}
+                      </td>
+                      <td className="money">
+                        {l.estimatedEur != null ? money(l.estimatedEur) : '—'}
+                      </td>
+                      <td className="money">{l.signingEur != null ? money(l.signingEur) : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            {(c.lots.estimatedTotalEur || c.lots.signedTotalEur) && (
+              <p className="small muted" style={{ marginTop: 8 }}>
+                {c.lots.estimatedTotalEur && (
+                  <>
+                    Прогнозна стойност на всички лотове:{' '}
+                    <strong>{money(c.lots.estimatedTotalEur)}</strong>.{' '}
+                  </>
+                )}
+                {c.lots.signedTotalEur && (
+                  <>
+                    Сключени договори: <strong>{money(c.lots.signedTotalEur)}</strong> при
+                    подписване.
+                  </>
+                )}
+              </p>
+            )}
+          </Section>
+        )}
+
+        <Section id="provenance" title="Произход на данните">
+          <p>
+            Този запис е съставен от публикуваните в АОП / ЦАИС ЕОП данни към преписката,
+            нормализирани от Сигма. Имената на институцията и компанията са показани в
+            стандартизиран вид; ЕИК и УНП се запазват буквално.
+          </p>
+          <ul className="linklist">
+            <li>
+              <Link to={`/contracts/${c.id}.json`}>JSON запис в Сигма</Link>
+              <span className="sub">машиночетим, всички полета — /contracts/{c.id}.json</span>
+            </li>
+          </ul>
+          <SourceLine>
+            Източник: Регистър на обществените поръчки (АОП / ЦАИС ЕОП). Сигма не редактира
+            съдържанието на договора и не интерпретира клаузите.
+          </SourceLine>
+        </Section>
+      </main>
+    </>
+  );
+}
