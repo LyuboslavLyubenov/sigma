@@ -4,10 +4,15 @@ name: Deploy (web + etl → Cloudflare)
 # scoped Cloudflare credential lives only in repo secrets. Ships the v1 set — the SSR explorer
 # (`sigma`) and the refresh Workflow (`sigma-etl`). The remote D1 must already be provisioned and its
 # real database_id set in the wrangler configs (see docs/deploy.md). No-ops cleanly without secrets.
+#
+# Triggered by a version TAG (cut a release), not by every push to main:
+#   git tag v1.0.0 && git push origin v1.0.0      # → deploys
+# Or run it by hand from the Actions tab (workflow_dispatch). (To deploy on GitHub *Releases*
+# instead, swap the trigger for `release: { types: [published] }`.)
 
 on:
   push:
-    branches: [main]
+    tags: ['v*']
   workflow_dispatch:
 
 concurrency:

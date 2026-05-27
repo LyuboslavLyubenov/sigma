@@ -13,8 +13,13 @@ D1 via the vite `persistState` path; in production they share it by binding the 
 - A Cloudflare account on the **Workers Paid** plan (needed for Workflows and a ~1.4 GB D1).
 - A credential. Two ways:
   - **CI (recommended):** set repo secrets `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`; deploys
-    run from [.github/workflows/deploy.yml](../.github/workflows/deploy.yml) on merge to `main`. No
-    long-lived credential on any developer machine (per AGENTS.md).
+    run from [.github/workflows/deploy.yml](../.github/workflows/deploy.yml) **when you push a version
+    tag** (cut a release). No long-lived credential on any developer machine (per AGENTS.md).
+
+> **What CI does vs. what's one-time manual.** CI only **deploys** (`wrangler deploy`). It cannot run
+> steps 1–2 below: `bootstrap:apply` produces resource IDs that must be pasted into the configs
+> (chicken-and-egg), and the initial data load needs the gitignored `data/` files. Do steps 1–2
+> once, locally; thereafter CI deploys on each tag and the `sigma-etl` cron keeps the data fresh.
   - **Local:** `pnpm exec wrangler login`, or export the same two env vars.
 
 ### Minimal API-token scopes
@@ -52,7 +57,12 @@ node scripts/import.mjs --remote   # migrate → admin export → fx → NUTS �
 
 ## 3. Deploy
 
-**CI:** merge to `main` → [deploy.yml](../.github/workflows/deploy.yml) ships `sigma` + `sigma-etl`.
+**CI (on a version tag):** cut a release → [deploy.yml](../.github/workflows/deploy.yml) ships
+`sigma` + `sigma-etl`:
+```bash
+git tag v1.0.0 && git push origin v1.0.0
+```
+(or run it by hand from the Actions tab).
 
 **Manual:**
 
