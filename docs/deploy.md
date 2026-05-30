@@ -67,8 +67,8 @@ git tag v1.0.0 && git push origin v1.0.0
 **Manual:**
 
 ```bash
-pnpm --filter @sigma/web deploy   # react-router build && wrangler deploy → the `sigma` worker
-pnpm --filter @sigma/etl deploy   # → the `sigma-etl` worker (registers the cron + RefreshWorkflow)
+pnpm --filter @sigma/web run deploy   # react-router build && wrangler deploy → the `sigma` worker
+pnpm --filter @sigma/etl run deploy   # → the `sigma-etl` worker (registers the cron + RefreshWorkflow)
 ```
 
 `apps/web` is named **`sigma`**, so this **replaces the static v1 mock** at
