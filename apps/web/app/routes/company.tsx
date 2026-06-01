@@ -93,7 +93,12 @@ export default function Company({ loaderData }: Route.ComponentProps) {
 
         {/* Consortium membership. Shown only when the source row gave us something to break out
             (a `;`-list or the rare free-text dump). Plain companies and one-name "ИНТЕРБОЛГАРСТРОЙ
-            ДЗЗД"-style rows skip the section — the kind=обединение badge above already says it. */}
+            ДЗЗД"-style rows skip the section — the kind=обединение badge above already says it.
+            Per-member ЕИК / profile link is deliberately NOT surfaced even though `eik` /
+            `resolvedSlug` are carried on the type — we don't have the data in v1 (parked on the
+            Trade Register backfill), and labelling every row „ЕИК неустановен" turned into UI
+            noise rather than information. When `resolvedSlug` lands the name will silently become
+            a <Link>; until then we just show the names. */}
         {(c.participants.length > 0 || c.membershipNote) && (
           <Section
             id="participants"
@@ -104,41 +109,22 @@ export default function Company({ loaderData }: Route.ComponentProps) {
             }
             hint={
               c.participants.length > 0
-                ? 'Имена от описанието на договора в АОП. ЕИК на отделните участници и връзки към техните профили ще се добавят след свързване с Търговския регистър — до тогава сумите се водят на ниво обединение.'
+                ? 'Имена от описанието на договора в АОП. Сумите се водят на ниво обединение — индивидуални профили на участниците ще се появят след свързване с Търговския регистър.'
                 : 'Източникът съдържа свободен текст вместо структуриран списък участници. Запазваме описанието както е в обявата.'
             }
           >
             {c.participants.length > 0 ? (
-              <div className="table-wrap tbl-cards">
-                <table>
-                  <thead>
-                    <tr>
-                      <th scope="col">#</th>
-                      <th scope="col">Участник</th>
-                      <th scope="col">Идентификация</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {c.participants.map((p, i) => (
-                      <tr key={`${p.name}-${i}`}>
-                        <td className="rank cell-rank" data-label="#">
-                          {i + 1}
-                        </td>
-                        <td className="cell-title" data-label="Участник">
-                          {p.resolvedSlug ? <Link to={`/companies/${p.resolvedSlug}`}>{p.name}</Link> : p.name}
-                        </td>
-                        <td data-label="Идентификация">
-                          {p.eik ? (
-                            <span className="mono">ЕИК {p.eik}</span>
-                          ) : (
-                            <span className="muted small">ЕИК неустановен</span>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+              <ol className="participants-list">
+                {c.participants.map((p, i) => (
+                  <li key={`${p.name}-${i}`}>
+                    {p.resolvedSlug ? (
+                      <Link to={`/companies/${p.resolvedSlug}`}>{p.name}</Link>
+                    ) : (
+                      p.name
+                    )}
+                  </li>
+                ))}
+              </ol>
             ) : (
               <blockquote
                 style={{
