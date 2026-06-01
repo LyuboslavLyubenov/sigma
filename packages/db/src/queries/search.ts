@@ -14,9 +14,22 @@ const GROUPS: { kind: Kind; label: string; amountLabel: string; limit: number }[
   { kind: 'contract', label: 'Договори', amountLabel: 'стойност', limit: 6 },
 ];
 
+// Common Latin↔Cyrillic confusables (homoglyphs). People paste names where a few Cyrillic letters
+// got typed on a Latin keyboard, e.g. „Стрoителствo" with a Latin o — which otherwise matches
+// nothing. We map only the well-known confusable set, and only on the search term (never on stored
+// data). Case-sensitive: e.g. Latin `B` looks like Cyrillic `В`, but lowercase `b` has no twin.
+const HOMOGLYPHS: Record<string, string> = {
+  a: 'а', c: 'с', e: 'е', o: 'о', p: 'р', x: 'х', y: 'у', k: 'к', m: 'м', t: 'т',
+  A: 'А', B: 'В', C: 'С', E: 'Е', H: 'Н', K: 'К', M: 'М', O: 'О', P: 'Р', T: 'Т', X: 'Х',
+};
+
+function deHomoglyph(q: string): string {
+  return q.replace(/[aceopxykmtABCEHKMOPTX]/g, (ch) => HOMOGLYPHS[ch] ?? ch);
+}
+
 /** Turn raw user input into an FTS5 prefix-AND query, or null if nothing searchable remains. */
 function ftsQuery(q: string): string | null {
-  const terms = q.toLowerCase().match(/[\p{L}\p{N}]+/gu);
+  const terms = deHomoglyph(q).toLowerCase().match(/[\p{L}\p{N}]+/gu);
   if (!terms || terms.length === 0) return null;
   return terms.map((t) => `${t}*`).join(' ');
 }
@@ -32,7 +45,10 @@ interface HitRow {
 export async function search(db: D1Database, rawQuery: string): Promise<SearchResults> {
   const query = (rawQuery ?? '').trim();
   const match = ftsQuery(query);
-  if (!match) return { query, groups: [], empty: true };
+  // No searchable content (empty, or punctuation-only like a lone „"") → empty-query shape, with the
+  // term normalized to '' so the page falls back to the generic „Търсене" header instead of echoing
+  // the stray punctuation in the H1.
+  if (!match) return { query: '', groups: [], empty: true };
 
   // Per-kind counts in one query.
   const countRows = await db

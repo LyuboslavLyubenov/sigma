@@ -1,11 +1,11 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
-import { money } from '@sigma/shared';
+import { count, money, plural } from '@sigma/shared';
 import { search } from '@sigma/db';
 import type { Route } from './+types/search';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { PageHeader } from '../components/PageHeader';
-import { Callout, Chip } from '../components/ui';
+import { Callout } from '../components/ui';
 import { publicCache } from '../lib/cache';
 
 export function meta({ data }: Route.MetaArgs) {
@@ -48,6 +48,19 @@ export default function Search({ loaderData }: Route.ComponentProps) {
   const tokens = (results.query.toLowerCase().match(/[\p{L}\p{N}]+/gu) ?? []) as string[];
   const hasQuery = results.query.trim().length > 0;
 
+  // What the search covers — a description, shown as the lede on the empty-query and no-results
+  // states (never as a claim that matches were found). On a query that did match, the lede leads
+  // with the result line instead.
+  const coverage =
+    'Търсенето претърсва имена на институции и компании, предмети на договори, номера на договори и УНП на преписки.';
+  const lede =
+    hasQuery && !results.empty
+      ? 'Намерени са съвпадения в институции, компании и договори.'
+      : coverage;
+  // On the empty-query / no-results states no result <section> (each an h2) renders, so the Callout's
+  // h3 would follow the h1 directly — an h1→h3 skip. Emit a preceding h2 in that case.
+  const hasResults = results.groups.some((g) => g.total > 0);
+
   return (
     <>
       <Breadcrumbs
@@ -60,7 +73,7 @@ export default function Search({ loaderData }: Route.ComponentProps) {
         <PageHeader
           kicker="Резултати от търсене"
           title={hasQuery ? results.query : 'Търсене'}
-          lede="Намерени са съвпадения в институции, компании и договори. Търсенето претърсва имена на институции и компании, предмети на договори, номера на договори и УНП на преписки."
+          lede={lede}
         />
 
         {hasQuery && results.empty && (
@@ -74,8 +87,10 @@ export default function Search({ loaderData }: Route.ComponentProps) {
               <div className="head">
                 <h2 id={`r-${g.kind}`}>{g.label}</h2>
                 <span className="count">
-                  {g.total > g.hits.length ? `над ${g.hits.length} от ${g.total}` : `${g.total}`}{' '}
-                  съвпадения
+                  {g.total > g.hits.length
+                    ? `над ${count(g.hits.length)} от ${count(g.total)}`
+                    : count(g.total)}{' '}
+                  {plural(g.total, 'съвпадение', 'съвпадения')}
                 </span>
               </div>
               {g.hits.map((h) => (
@@ -102,12 +117,6 @@ export default function Search({ loaderData }: Route.ComponentProps) {
                           )}
                           {h.ident && h.subtitle && ' · '}
                           {h.subtitle && highlight(h.subtitle, tokens)}
-                          {h.kind === 'company' && (
-                            <>
-                              {' '}
-                              <Chip>{KIND_LABEL[h.kind]}</Chip>
-                            </>
-                          )}
                         </>
                       )}
                     </p>
@@ -121,6 +130,7 @@ export default function Search({ loaderData }: Route.ComponentProps) {
             </section>
           ))}
 
+        {!hasResults && <h2 className="sr-only">Помощ при търсене</h2>}
         <Callout title="Съвети за търсене">
           <ul style={{ margin: 0, paddingLeft: 20 }}>
             <li>
