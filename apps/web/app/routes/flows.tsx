@@ -1,5 +1,6 @@
 import { Form, Link, useSearchParams, useSubmit } from 'react-router';
 import { count, money } from '@sigma/shared';
+import { CPV_SECTORS } from '@sigma/config';
 import { getFlows } from '@sigma/db';
 import type { Route } from './+types/flows';
 import { Breadcrumbs } from '../components/Breadcrumbs';
@@ -25,19 +26,23 @@ export function headers() {
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const sp = new URL(request.url).searchParams;
+  const sector = sp.get('sector');
+  // A bogus ?sector (not a CPV division) would filter every flow out and render a blank diagram +
+  // empty table silently. Flag it so we show an explicit empty state instead.
+  const unknownSector = Boolean(sector) && !CPV_SECTORS.some((s) => s.code === sector);
   const data = await getFlows(context.cloudflare.env.DB, {
-    sector: sp.get('sector'),
+    sector: unknownSector ? null : sector,
     year: sp.get('year'),
     funding: (sp.get('funding') as 'eu' | 'national' | null) || 'all',
     top: sp.get('top') === '50' ? 50 : 20,
   });
-  return { data };
+  return { data, unknownSector };
 }
 
 const YEARS = ['2026', '2025', '2024', '2023', '2022', '2021', '2020'];
 
 export default function Flows({ loaderData }: Route.ComponentProps) {
-  const { data } = loaderData;
+  const { data, unknownSector } = loaderData;
   const [sp] = useSearchParams();
   const submit = useSubmit();
   const sel = (k: string) => sp.get(k) ?? '';
@@ -61,7 +66,7 @@ export default function Flows({ loaderData }: Route.ComponentProps) {
         >
           <label>
             Сектор:
-            <select name="sector" defaultValue={sel('sector')}>
+            <select name="sector" defaultValue={unknownSector ? '' : sel('sector')}>
               <option value="">Всички сектори</option>
               {data.sectors.map((s) => (
                 <option key={s.code} value={s.code}>
@@ -98,21 +103,30 @@ export default function Flows({ loaderData }: Route.ComponentProps) {
           </label>
         </Form>
 
-        <Callout>
-          <strong>Прочит:</strong> всеки поток е сборът от договорите между една институция и една
-          компания за избрания обхват. Схемата е илюстративна — точните стойности са в таблицата
-          по-долу.
-        </Callout>
+        {unknownSector ? (
+          <Callout variant="warning" title="Няма данни за избрания сектор">
+            Изборът на сектор не отговаря на нито една категория от номенклатурата CPV. Вижте{' '}
+            <Link to="/flows">всички сектори</Link> или изберете сектор от списъка по-горе.
+          </Callout>
+        ) : (
+          <>
+            <Callout>
+              <strong>Прочит:</strong> всеки поток е сборът от договорите между една институция и
+              една компания за избрания обхват. Схемата е илюстративна — точните стойности са в
+              таблицата по-долу.
+            </Callout>
 
-        <SankeyDiagram layout={data.sankey} />
+            <SankeyDiagram layout={data.sankey} />
 
-        <div className="flow-tooltip">
-          <strong>Какво показва тази картина</strong>
-          Най-дебелите потоци разкриват доминиращи получатели (една компания, поглъщаща голяма част
-          от един възложител) и системни клиенти (институция, чиито пари отиват почти изцяло към 2–3
-          компании). Дебелината показва само сумата — не и дали концентрацията е оправдана. Затова
-          всеки поток се разлага до конкретните договори в таблицата.
-        </div>
+            <div className="flow-tooltip">
+              <strong>Какво показва тази картина</strong>
+              Най-дебелите потоци разкриват доминиращи получатели (една компания, поглъщаща голяма
+              част от един възложител) и системни клиенти (институция, чиито пари отиват почти изцяло
+              към 2–3 компании). Дебелината показва само сумата — не и дали концентрацията е
+              оправдана. Затова всеки поток се разлага до конкретните договори в таблицата.
+            </div>
+          </>
+        )}
 
         <Section id="scenarios" title="Сценарии" hint="Готови филтри върху същата визуализация.">
           <div className="tiles">
@@ -149,54 +163,56 @@ export default function Flows({ loaderData }: Route.ComponentProps) {
           </div>
         </Section>
 
-        <Section
-          id="top-flows"
-          title={`Топ ${data.scope.top} потока — табличен изглед`}
-          hint="Най-големите потоци за избрания обхват."
-        >
-          <div className="table-wrap tbl-cards">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">#</th>
-                  <th scope="col">Институция</th>
-                  <th scope="col">Компания</th>
-                  <th scope="col" className="num">
-                    Сума
-                  </th>
-                  <th scope="col" className="num">
-                    Договори
-                  </th>
-                </tr>
-              </thead>
-              <tbody>
-                {data.pairs.map((p) => (
-                  <tr key={`${p.authoritySlug}-${p.bidderSlug}`}>
-                    <td className="rank cell-rank" data-label="#">
-                      {p.rank}
-                    </td>
-                    <td className="cell-title" data-label="Институция">
-                      <Link to={`/authorities/${p.authoritySlug}`}>{p.authorityName}</Link>
-                    </td>
-                    <td data-label="Компания">
-                      <Link to={`/companies/${p.bidderSlug}`}>{p.bidderDisplayName}</Link>
-                    </td>
-                    <td className="money" data-label="Сума">
-                      {money(p.wonEur)}
-                    </td>
-                    <td className="money" data-label="Договори">
-                      {count(p.contracts)}
-                    </td>
+        {!unknownSector && (
+          <Section
+            id="top-flows"
+            title={`Топ ${data.scope.top} потока — табличен изглед`}
+            hint="Най-големите потоци за избрания обхват."
+          >
+            <div className="table-wrap tbl-cards">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">#</th>
+                    <th scope="col">Институция</th>
+                    <th scope="col">Компания</th>
+                    <th scope="col" className="num">
+                      Сума
+                    </th>
+                    <th scope="col" className="num">
+                      Договори
+                    </th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-          <p className="small muted" style={{ marginTop: 'var(--s-3)' }}>
-            Всеки ред се разлага до договорите си:{' '}
-            <Link to="/contracts?sort=value-desc">виж договорите →</Link>
-          </p>
-        </Section>
+                </thead>
+                <tbody>
+                  {data.pairs.map((p) => (
+                    <tr key={`${p.authoritySlug}-${p.bidderSlug}`}>
+                      <td className="rank cell-rank" data-label="#">
+                        {p.rank}
+                      </td>
+                      <td className="cell-title" data-label="Институция">
+                        <Link to={`/authorities/${p.authoritySlug}`}>{p.authorityName}</Link>
+                      </td>
+                      <td data-label="Компания">
+                        <Link to={`/companies/${p.bidderSlug}`}>{p.bidderDisplayName}</Link>
+                      </td>
+                      <td className="money" data-label="Сума">
+                        {money(p.wonEur)}
+                      </td>
+                      <td className="money" data-label="Договори">
+                        {count(p.contracts)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <p className="small muted" style={{ marginTop: 'var(--s-3)' }}>
+              Всеки ред се разлага до договорите си:{' '}
+              <Link to="/contracts?sort=value-desc">виж договорите →</Link>
+            </p>
+          </Section>
+        )}
       </main>
     </>
   );

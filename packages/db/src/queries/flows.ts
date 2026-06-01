@@ -122,6 +122,7 @@ function buildSankey(pairs: PairRow[]): SankeyLayout {
       width: BAR_W,
       height: h,
       labelY: ay + h / 2,
+      href: `/authorities/${authoritySlug(id)}`,
     });
     ay += h + GAP;
   });
@@ -139,6 +140,7 @@ function buildSankey(pairs: PairRow[]): SankeyLayout {
       width: BAR_W,
       height: h,
       labelY: cy + h / 2,
+      href: `/companies/${companySlug(id)}`,
     });
     cy += h + GAP;
   });

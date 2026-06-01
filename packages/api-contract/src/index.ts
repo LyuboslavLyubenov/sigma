@@ -355,6 +355,7 @@ export interface SankeyNode {
   width: number;
   height: number;
   labelY: number;
+  href?: string; // drill-down target (/authorities/:slug | /companies/:slug)
 }
 
 export interface SankeyRibbon {

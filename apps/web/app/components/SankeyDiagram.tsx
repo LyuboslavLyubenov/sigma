@@ -1,17 +1,34 @@
-import type { SankeyLayout } from '@sigma/api-contract';
+import type { SankeyLayout, SankeyNode } from '@sigma/api-contract';
 import { money } from '@sigma/shared';
+
+// A node may carry a drill-down target (`/authorities/:slug` or `/companies/:slug`) so the bar +
+// label become a real link. Optional so the component still renders if the loader omits it.
+type LinkedNode = SankeyNode & { href?: string };
 
 // Renders the loader-computed Sankey as a static SVG (no chart JS). Authority bars (left) → company
 // bars (right), ribbon thickness ∝ flow value. Scrolls horizontally on narrow screens (.flow-scroll)
 // rather than shrinking labels into illegibility. Paired with the top-N table for the actual links.
 export function SankeyDiagram({ layout }: { layout: SankeyLayout }) {
+  // The loader lays the geometry out in a fixed user-space height (sized for the Top-20 view), so
+  // the „Топ 50" view (≈35 bars/side) crams its bars and collides labels. Stretch the geometry
+  // vertically by the column count — bars + gaps grow, labels keep their font size — and grow the
+  // viewBox to match so width still flexes to the container without horizontal distortion.
+  const perSide = Math.max(
+    layout.nodes.filter((n) => n.side === 'authority').length,
+    layout.nodes.filter((n) => n.side === 'company').length,
+  );
+  const vScale = Math.max(1, perSide / 20);
+  // viewBox is "minX minY width height"; stretch only the height to match the vertical scale.
+  const [vbX, vbY, vbW, vbH] = layout.viewBox.split(' ');
+  const viewBox = `${vbX} ${vbY} ${vbW} ${(Number(vbH) * vScale).toFixed(0)}`;
+
   return (
     <>
       <p className="flow-scroll-hint">Плъзни хоризонтално, за да видиш цялата схема →</p>
       <div className="flow-scroll">
         <svg
           className="flow-svg"
-          viewBox={layout.viewBox}
+          viewBox={viewBox}
           role="img"
           aria-label="Поток на средства от институции към компании"
         >
@@ -28,7 +45,7 @@ export function SankeyDiagram({ layout }: { layout: SankeyLayout }) {
             Компании
           </text>
 
-          <g fillRule="evenodd">
+          <g fillRule="evenodd" transform={vScale === 1 ? undefined : `scale(1 ${vScale})`}>
             {layout.ribbons.map((r, i) => (
               <path className="link" d={r.d} key={i}>
                 <title>{r.title}</title>
@@ -36,25 +53,27 @@ export function SankeyDiagram({ layout }: { layout: SankeyLayout }) {
             ))}
           </g>
 
-          {layout.nodes.map((n, i) => {
+          {(layout.nodes as LinkedNode[]).map((n, i) => {
             const isAuth = n.side === 'authority';
             const tx = isAuth ? n.x - 6 : n.x + n.width + 8;
-            return (
-              <g key={i}>
-                <rect
-                  className={`node ${n.side}`}
-                  x={n.x}
-                  y={n.y}
-                  width={n.width}
-                  height={n.height}
-                >
+            // Stretch bar geometry + label baseline vertically (font size stays put for legibility).
+            const y = n.y * vScale;
+            const height = n.height * vScale;
+            const labelY = n.labelY * vScale;
+            // Two-line label needs ~26 user units of bar height to clear its neighbour; below that
+            // we drop the label (the hover tooltip still carries the name + value).
+            const showLabel = height >= 26;
+            const kind = isAuth ? 'институция' : 'компания';
+            const body = (
+              <>
+                <rect className={`node ${n.side}`} x={n.x} y={y} width={n.width} height={height}>
                   <title>{`${n.label}: ${money(n.valueEur)}`}</title>
                 </rect>
-                {n.height >= 14 && (
+                {showLabel && (
                   <>
                     <text
                       x={tx}
-                      y={n.labelY - 1}
+                      y={labelY - 1}
                       textAnchor={isAuth ? 'end' : 'start'}
                       className="node-label"
                       style={{ fontWeight: 700 }}
@@ -63,7 +82,7 @@ export function SankeyDiagram({ layout }: { layout: SankeyLayout }) {
                     </text>
                     <text
                       x={tx}
-                      y={n.labelY + 13}
+                      y={labelY + 13}
                       textAnchor={isAuth ? 'end' : 'start'}
                       className="node-label small"
                     >
@@ -71,7 +90,20 @@ export function SankeyDiagram({ layout }: { layout: SankeyLayout }) {
                     </text>
                   </>
                 )}
-              </g>
+              </>
+            );
+            return n.href ? (
+              <a
+                key={i}
+                href={n.href}
+                className="node-link"
+                aria-label={`${n.label} (${kind}): ${money(n.valueEur)}`}
+                style={{ cursor: 'pointer' }}
+              >
+                {body}
+              </a>
+            ) : (
+              <g key={i}>{body}</g>
             );
           })}
         </svg>
