@@ -125,7 +125,7 @@ function coerce(kind, v) {
 function sqlLiteral(kind, value) {
   if (value === null) return 'NULL';
   if (kind === 'int' || kind === 'real' || kind === 'bool') return String(value);
-  return `'${String(value).replace(/'/g, "''")}'`;
+  return `'${String(value).replace(/[\x00-\x1F]/g, '').replace(/'/g, "''")}'`;
 }
 
 // --- portal API -------------------------------------------------------------
@@ -256,7 +256,7 @@ async function main() {
     const source = `egov:contracts:${ds.year}:${ds.variant}`;
     const meta = [source, ds.uri, res.uri, ds.year, ds.variant, fetchedAt];
     const metaLiteral = META_COLS.map((_, i) =>
-      typeof meta[i] === 'number' ? String(meta[i]) : `'${String(meta[i]).replace(/'/g, "''")}'`,
+      typeof meta[i] === 'number' ? String(meta[i]) : sqlLiteral('text', meta[i]),
     );
 
     let batch = [];

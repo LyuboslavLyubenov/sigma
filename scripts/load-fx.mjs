@@ -25,7 +25,8 @@ const apply = process.argv.includes('--apply');
 const remoteFlag = process.argv.includes('--remote') ? '--remote' : '--local';
 const API = 'https://api.frankfurter.app';
 
-const sqlStr = (s) => (s == null ? 'NULL' : `'${String(s).replace(/'/g, "''")}'`);
+const stripControls = (s) => String(s).replace(/[\x00-\x1F]/g, '');
+const sqlStr = (s) => (s == null ? 'NULL' : `'${stripControls(s).replace(/'/g, "''")}'`);
 
 function d1(sql) {
   const out = execFileSync('wrangler', ['d1', 'execute', 'sigma', remoteFlag, '--json', '--command', sql], {
@@ -45,7 +46,17 @@ console.log(`foreign (currency, date) pairs to price: ${pairs.length}`);
 
 const rows = [];
 for (const { currency, contract_date } of pairs) {
-  const url = `${API}/${contract_date}?base=${currency}&symbols=EUR`;
+  const c = String(currency);
+  const d = String(contract_date);
+  if (!/^[A-Z]{3}$/.test(c)) {
+    console.warn(`  ! invalid currency ${currency} ${contract_date}`);
+    continue;
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(d)) {
+    console.warn(`  ! invalid date ${currency} ${contract_date}`);
+    continue;
+  }
+  const url = `${API}/${encodeURIComponent(d)}?base=${encodeURIComponent(c)}&symbols=${encodeURIComponent('EUR')}`;
   let rate = null;
   try {
     const res = await fetch(url);
@@ -58,8 +69,13 @@ for (const { currency, contract_date } of pairs) {
     console.warn(`  ! no rate for ${currency} ${contract_date}`);
     continue;
   }
-  rows.push({ currency, contract_date, rate });
-  console.log(`  ${currency} ${contract_date} → ${rate} EUR/unit`);
+  const n = Number(rate);
+  if (!Number.isFinite(n)) {
+    console.warn(`  ! invalid rate for ${currency} ${contract_date}`);
+    continue;
+  }
+  rows.push({ currency: c, contract_date: d, rate: n });
+  console.log(`  ${currency} ${contract_date} → ${n} EUR/unit`);
 }
 
 const now = new Date().toISOString();

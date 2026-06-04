@@ -17,7 +17,7 @@
 import { execFileSync } from 'node:child_process';
 import { createWriteStream, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { once } from 'node:events';
-import { dirname, resolve } from 'node:path';
+import { dirname, relative, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
@@ -70,10 +70,23 @@ const KIND_CATEGORY = { goods: 'Доставки', services: 'Услуги', wor
 function sqlLiteral(col, value) {
   if (value === null || value === undefined) return 'NULL';
   const kind = COL_KIND[col];
-  if (kind === 'int' || kind === 'real') return Number.isFinite(Number(value)) ? String(value) : 'NULL';
-  return `'${String(value).replace(/'/g, "''")}'`;
+  if (kind === 'int' || kind === 'real') {
+    const n = Number(value);
+    return Number.isFinite(n) ? String(n) : 'NULL';
+  }
+  return `'${String(value).replace(/[\x00-\x1F]/g, '').replace(/'/g, "''")}'`;
 }
 const dateOnly = (s) => (s ? String(s).slice(0, 10) : null);
+function cachePath(resourceUri) {
+  const safeUri = String(resourceUri);
+  if (!/^[A-Za-z0-9_.-]+$/.test(safeUri)) throw new Error(`invalid resource_uri: ${resourceUri}`);
+  const file = resolve(cacheDir, `${safeUri}.json`);
+  const rel = relative(cacheDir, file);
+  if (rel.startsWith('..') || rel === '..' || rel.startsWith(`${sep}`)) {
+    throw new Error(`resource_uri escapes cache dir: ${resourceUri}`);
+  }
+  return file;
+}
 
 async function postJSON(method, body) {
   const resp = await fetch(`${API}/${method}`, {
@@ -85,7 +98,7 @@ async function postJSON(method, body) {
   return resp.json();
 }
 async function getResourceData(resourceUri, refresh) {
-  const cacheFile = resolve(cacheDir, `${resourceUri}.json`);
+  const cacheFile = cachePath(resourceUri);
   if (!refresh && existsSync(cacheFile)) return JSON.parse(readFileSync(cacheFile, 'utf8'));
   const resp = await fetch(`${API}/getResourceData`, {
     method: 'POST',

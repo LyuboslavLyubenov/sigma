@@ -77,7 +77,20 @@ function coerce(kind, v) {
 function lit(kind, value) {
   if (value === null) return 'NULL';
   if (kind === 'int' || kind === 'real' || kind === 'bool') return String(value);
-  return `'${String(value).replace(/'/g, "''")}'`;
+  return `'${String(value).replace(/[\x00-\x1F]/g, '').replace(/'/g, "''")}'`;
+}
+function readSheetInput(file) {
+  const buf = readFileSync(file);
+  if (/\.xlsx$/i.test(file)) {
+    if (buf.length < 2 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
+      throw new Error(`invalid .xlsx input ${file}: missing ZIP magic`);
+    }
+    return { data: buf, type: 'buffer' };
+  }
+  if (buf.length > 0 && buf[0] === 0x3c) {
+    throw new Error(`invalid spreadsheet input ${file}: XML-like content is not accepted`);
+  }
+  return { data: buf.toString('utf8'), type: 'string' };
 }
 
 // Per category: target table, fixed columns (+ values fn), and [field, header, kind] map.
@@ -311,8 +324,8 @@ async function loadCategory(cat, years, apply, remote) {
       continue;
     }
     process.stderr.write(`==> ${cat} ${year}: parsing\n`);
-    // Decode as UTF-8 string first — SheetJS misreads a raw buffer's Cyrillic (wrong codepage).
-    const wb = XLSX.read(readFileSync(csvPath).toString('utf8'), { type: 'string', raw: true, dense: true });
+    const sheetInput = readSheetInput(csvPath);
+    const wb = XLSX.read(sheetInput.data, { type: sheetInput.type, raw: true, dense: true });
     const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
       header: 1,
       raw: true,
