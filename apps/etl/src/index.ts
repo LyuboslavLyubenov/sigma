@@ -146,8 +146,16 @@ export class RefreshWorkflow extends WorkflowEntrypoint<Env, RefreshParams> {
         fetchedAt,
       };
       const n = await step.do(`ingest:${ds.source}`, async () => {
-        const releases: OcdsRelease[] =
-          params.releases ?? (await fetchOcdsPackage(ds.resourceUri)).releases ?? [];
+        let releases: OcdsRelease[];
+        if (params.releases) {
+          releases = params.releases;
+        } else {
+          // Fetch first so the package-level publishedDate is in scope: releases that lack their
+          // own `date` fall back to it (mirrors load-ocds.mjs), instead of regressing to NULL.
+          const pkg = await fetchOcdsPackage(ds.resourceUri);
+          meta.publishedDate = pkg.publishedDate;
+          releases = pkg.releases ?? [];
+        }
         const rows = releases.flatMap((rel) => releaseToContracts(rel, meta));
         return upsertContractStaging(this.env.DB, ds.source, rows);
       });
