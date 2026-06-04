@@ -3,7 +3,7 @@ name: Deploy (web + etl → Cloudflare)
 # Production deploys originate here, not from a developer machine (see AGENTS.md / README.md): the
 # scoped Cloudflare credential lives only in repo secrets. Ships the v1 set — the SSR explorer
 # (`sigma`) and the refresh Workflow (`sigma-etl`). The remote D1 must already be provisioned and its
-# real database_id set in the wrangler configs (see docs/deploy.md). No-ops cleanly without secrets.
+# real database_id set in the wrangler configs (see docs/deploy.md). Fails clearly without secrets.
 #
 # Triggered by a version TAG (cut a release), not by every push to main:
 #   git tag v1.0.0 && git push origin v1.0.0      # → deploys
@@ -42,10 +42,11 @@ jobs:
         run: |
           missing=()
           [ -z "${CLOUDFLARE_API_TOKEN}" ] && missing+=("CLOUDFLARE_API_TOKEN")
+          [ -z "${CLOUDFLARE_ACCOUNT_ID}" ] && missing+=("CLOUDFLARE_ACCOUNT_ID")
           [ -z "${SIGMA_D1_ID}" ]          && missing+=("SIGMA_D1_ID")
           if [ "${#missing[@]}" -gt 0 ]; then
-            echo "Missing repo secrets: ${missing[*]} — skipping deploy."
-            echo "ok=false" >> "$GITHUB_OUTPUT"
+            echo "::error::Missing repo secrets: ${missing[*]} — cannot deploy."
+            exit 1
           else
             echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
