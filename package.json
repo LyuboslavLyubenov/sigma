@@ -29,8 +29,7 @@
     "turbo": "^2.9.14",
     "typescript": "^6.0.3",
     "vitest": "^4.1.7",
-    "wrangler": "^4.93.1",
-    "xlsx": "^0.18.5"
+    "wrangler": "^4.93.1"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
