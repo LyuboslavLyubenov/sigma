@@ -21,7 +21,7 @@ const VALUE_BUCKETS = [
 
 export function meta(_: Route.MetaArgs) {
   return [
-    { title: 'Договори — Сигма' },
+    { title: 'Договори — СИГМА' },
     {
       name: 'description',
       content: 'Всеки сключен договор от обществена поръчка. Филтри в адреса; CSV експорт.',
@@ -240,7 +240,7 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
                   marginBottom: 6,
                 }}
               >
-                Какво е „договор“ в Сигма
+                Какво е „договор“ в СИГМА
               </h2>
               <p style={{ margin: '0 0 6px' }}>
                 Един възложен договор за обществена поръчка, на ниво обособена позиция (лот).

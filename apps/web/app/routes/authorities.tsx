@@ -15,7 +15,7 @@ import { publicCache } from '../lib/cache';
 
 export function meta(_: Route.MetaArgs) {
   return [
-    { title: 'Институции — Сигма' },
+    { title: 'Институции — СИГМА' },
     { name: 'description', content: 'Всяка институция, която е възложила поне един договор.' },
   ];
 }

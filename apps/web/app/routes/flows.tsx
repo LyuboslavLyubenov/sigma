@@ -11,7 +11,7 @@ import { publicCache } from '../lib/cache';
 
 export function meta(_: Route.MetaArgs) {
   return [
-    { title: 'Потоци на пари — Сигма' },
+    { title: 'Потоци на пари — СИГМА' },
     {
       name: 'description',
       content:

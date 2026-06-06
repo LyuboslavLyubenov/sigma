@@ -13,7 +13,7 @@ import { publicCache } from '../lib/cache';
 export function meta({ data }: Route.MetaArgs) {
   const name = data?.authority.name ?? 'Институция';
   return [
-    { title: `${name} — Сигма` },
+    { title: `${name} — СИГМА` },
     { name: 'description', content: `Обществени поръчки на ${name}, 2020–2026.` },
   ];
 }

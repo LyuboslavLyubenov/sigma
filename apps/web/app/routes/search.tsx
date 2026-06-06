@@ -11,7 +11,7 @@ import { publicCache } from '../lib/cache';
 export function meta({ data }: Route.MetaArgs) {
   const q = data?.results.query ?? '';
   return [
-    { title: q ? `Търсене: „${q}" — Сигма` : 'Търсене — Сигма' },
+    { title: q ? `Търсене: „${q}" — СИГМА` : 'Търсене — СИГМА' },
     { name: 'robots', content: 'noindex' },
   ];
 }

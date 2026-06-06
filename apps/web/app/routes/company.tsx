@@ -25,7 +25,7 @@ function isSingleNaturalPersonProfile(kind: string, legalForm: string | null): b
 export function meta({ data }: Route.MetaArgs) {
   const name = data?.company.displayName ?? 'Компания';
   const meta = [
-    { title: `${name} — Сигма` },
+    { title: `${name} — СИГМА` },
     { name: 'description', content: `Профил на ${name} в обществените поръчки 2020–2026.` },
   ];
   if (data?.company && isSingleNaturalPersonProfile(data.company.kind, data.company.legalForm)) {

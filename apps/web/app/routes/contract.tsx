@@ -43,7 +43,7 @@ function bidsBreakdown(c: ContractDetail): string | null {
 export function meta({ data }: Route.MetaArgs) {
   const c = data?.contract;
   return [
-    { title: `${c?.subject ?? 'Договор'} — Сигма` },
+    { title: `${c?.subject ?? 'Договор'} — СИГМА` },
     {
       name: 'description',
       content: c
@@ -402,7 +402,7 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
         <Section id="provenance" title="Произход на данните">
           <p>
             Този запис е съставен от публикуваните в АОП / ЦАИС ЕОП данни към преписката,
-            нормализирани от Сигма. Имената на институцията и компанията са показани в
+            нормализирани от СИГМА. Имената на институцията и компанията са показани в
             стандартизиран вид; ЕИК и УНП се запазват буквално.
           </p>
           <ul className="linklist">
@@ -412,13 +412,13 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
                   React Router would treat the JSON as a route module and crash. target=_blank
                   opens the raw record in a new tab so the visitor doesn't lose the contract page. */}
               <a href={`/contracts/${c.id}.json`} target="_blank" rel="noopener">
-                JSON запис в Сигма
+                JSON запис в СИГМА
               </a>
               <span className="sub">машиночетим, всички полета — /contracts/{c.id}.json</span>
             </li>
           </ul>
           <SourceLine>
-            Източник: Регистър на обществените поръчки (АОП / ЦАИС ЕОП). Сигма не редактира
+            Източник: Регистър на обществените поръчки (АОП / ЦАИС ЕОП). СИГМА не редактира
             съдържанието на договора и не интерпретира клаузите.
           </SourceLine>
         </Section>

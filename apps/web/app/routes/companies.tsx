@@ -23,7 +23,7 @@ const COUNT_BUCKETS = [
 
 export function meta(_: Route.MetaArgs) {
   return [
-    { title: 'Компании — Сигма' },
+    { title: 'Компании — СИГМА' },
     {
       name: 'description',
       content: 'Всяка компания, спечелила поне един договор по обществена поръчка.',
