@@ -32,7 +32,7 @@ const AOP_ORG_ID = 502;
 const MAX_BATCH_BYTES = 90_000;
 const MAX_BATCH_ROWS = 500;
 
-// raw_egov_contracts insert order (must match load-egov.mjs).
+// raw_egov_contracts insert order (must match migrations/0000_init.sql staging columns).
 const CONTRACT_COLS = [
   'source',
   'dataset_uri',
@@ -65,7 +65,7 @@ const CONTRACT_COLS = [
   'current_value',
   'needs_enrichment',
 ];
-// raw_egov_amendments insert order (must match load-annexes.mjs).
+// raw_egov_amendments insert order (must match migrations/0000_init.sql staging columns).
 const AMEND_COLS = [
   'source',
   'dataset_uri',

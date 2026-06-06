@@ -1,5 +1,5 @@
 -- Sigma — roll raw_egov_amendments up onto raw_egov_contracts.
--- Run AFTER scripts/load-annexes.mjs (CSV) and scripts/load-ocds.mjs (OCDS amendments).
+-- Run AFTER scripts/load-admin.mjs (admin amendments) and scripts/load-ocds.mjs (OCDS amendments).
 -- Re-runnable: resets the rollup, then matches amendments by (unp, contract_number).
 -- current_value = the after-value of the LATEST amendment; annex_count = how many.
 -- Contracts without amendments keep annex_count = 0 and current_value = NULL (the

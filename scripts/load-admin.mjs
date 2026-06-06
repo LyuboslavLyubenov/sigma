@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Load the admin ЦАИС ЕОП export (data/Open_data_resources.zip) — the rich, authoritative
-// source for 2020–2026. Contracts/Tenders/Annexes per year, each a CSV inside a nested zip.
+// Load the admin ЦАИС ЕОП export — the rich, authoritative source for 2020–2026.
+// Contracts/Tenders/Annexes per year are read from data/open-data/* JSON arrays.
 // Contracts already carry procedure type / CPV / estimated value / lots / authority type /
 // consortium flag, so rows land with needs_enrichment = 0 — no separate enrichment pass.
 //
@@ -12,24 +12,22 @@
 //          --apply, --remote
 //
 // Format notes (differ from the portal feed): comma decimals (69999,00), dot dates
-// (05.10.2021), Да/Не booleans, comma-delimited CSV with quoted fields → parsed with
-// SheetJS and mapped BY HEADER NAME (indices shift due to embedded commas). Wipes are
+// (05.10.2021), Да/Не booleans. JSON object keys are mapped BY HEADER NAME. Wipes are
 // scoped to source 'admin:<cat>:%'.
 
 import { execFileSync } from 'node:child_process';
-import { createWriteStream, existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs';
+import { createReadStream, createWriteStream, existsSync } from 'node:fs';
 import { once } from 'node:events';
 import { dirname, resolve } from 'node:path';
+import { StringDecoder } from 'node:string_decoder';
 import { fileURLToPath } from 'node:url';
-import * as XLSX from 'xlsx';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const apiDir = resolve(root, 'apps/api');
-const zipFile = resolve(root, 'data/Open_data_resources.zip');
-const workDir = resolve(root, 'data/admin-export'); // gitignored scratch
 const YEARS = [2020, 2021, 2022, 2023, 2024, 2025, 2026];
 const MAX_BATCH_BYTES = 90_000;
 const MAX_BATCH_ROWS = 500;
+const JSON_CHUNK_BYTES = 1024 * 1024;
 
 const norm = (s) => String(s).trim().toLowerCase().replace(/\s+/g, ' ');
 function clean(v) {
@@ -81,18 +79,126 @@ function lit(kind, value) {
     .replace(/[\x00-\x1F]/g, '')
     .replace(/'/g, "''")}'`;
 }
-function readSheetInput(file) {
-  const buf = readFileSync(file);
-  if (/\.xlsx$/i.test(file)) {
-    if (buf.length < 2 || buf[0] !== 0x50 || buf[1] !== 0x4b) {
-      throw new Error(`invalid .xlsx input ${file}: missing ZIP magic`);
+function jsonFileFor(cat, year) {
+  const cfg = CATS[cat];
+  return resolve(root, 'data/open-data', cfg.dir, `OpenData_${cfg.dir}_${year}.json`);
+}
+
+async function* streamJsonArrayObjects(file) {
+  const decoder = new StringDecoder('utf8');
+  let buf = '';
+  let pos = 0;
+  let started = false;
+  let done = false;
+  let objectStart = -1;
+  let depth = 0;
+  let inString = false;
+  let escaped = false;
+
+  const compact = (force = false) => {
+    if (objectStart >= 0) {
+      if (objectStart > 0 && (force || objectStart > JSON_CHUNK_BYTES)) {
+        buf = buf.slice(objectStart);
+        pos -= objectStart;
+        objectStart = 0;
+      }
+      return;
     }
-    return { data: buf, type: 'buffer' };
+    if (pos > 0 && (force || pos > JSON_CHUNK_BYTES)) {
+      buf = buf.slice(pos);
+      pos = 0;
+    }
+  };
+
+  function* scan(final = false) {
+    while (pos < buf.length) {
+      if (done) {
+        const ch = buf[pos];
+        if (/\s/.test(ch)) {
+          pos++;
+          continue;
+        }
+        throw new Error(`invalid JSON array ${file}: non-whitespace after closing ]`);
+      }
+
+      if (!started) {
+        const ch = buf[pos];
+        if (ch === '\uFEFF' || /\s/.test(ch)) {
+          pos++;
+          continue;
+        }
+        if (ch !== '[') throw new Error(`invalid JSON array ${file}: expected [`);
+        started = true;
+        pos++;
+        compact();
+        continue;
+      }
+
+      if (objectStart < 0) {
+        const ch = buf[pos];
+        if (/\s/.test(ch) || ch === ',') {
+          pos++;
+          compact();
+          continue;
+        }
+        if (ch === ']') {
+          done = true;
+          pos++;
+          compact();
+          continue;
+        }
+        if (ch !== '{') throw new Error(`invalid JSON array ${file}: expected object`);
+        objectStart = pos;
+        depth = 1;
+        inString = false;
+        escaped = false;
+        pos++;
+        continue;
+      }
+
+      const ch = buf[pos];
+      if (inString) {
+        if (escaped) escaped = false;
+        else if (ch === '\\') escaped = true;
+        else if (ch === '"') inString = false;
+        pos++;
+        continue;
+      }
+
+      if (ch === '"') inString = true;
+      else if (ch === '{') depth++;
+      else if (ch === '}') {
+        depth--;
+        if (depth === 0) {
+          const end = pos + 1;
+          const text = buf.slice(objectStart, end);
+          const record = JSON.parse(text);
+          pos = end;
+          objectStart = -1;
+          compact(true);
+          yield record;
+          continue;
+        }
+      }
+      pos++;
+    }
+
+    if (!final) return;
+    if (!started) throw new Error(`invalid JSON array ${file}: expected [`);
+    if (objectStart >= 0 || inString || escaped || depth !== 0) {
+      throw new Error(`invalid JSON array ${file}: unterminated object`);
+    }
+    if (!done) throw new Error(`invalid JSON array ${file}: expected closing ]`);
   }
-  if (buf.length > 0 && buf[0] === 0x3c) {
-    throw new Error(`invalid spreadsheet input ${file}: XML-like content is not accepted`);
+
+  const input = createReadStream(file, { highWaterMark: JSON_CHUNK_BYTES });
+  for await (const chunk of input) {
+    buf += decoder.write(chunk);
+    for (const record of scan(false)) yield record;
+    compact();
   }
-  return { data: buf.toString('utf8'), type: 'string' };
+  buf += decoder.end();
+  for (const record of scan(true)) yield record;
 }
 
 // Per category: target table, fixed columns (+ values fn), and [field, header, kind] map.
@@ -104,7 +210,7 @@ const CATS = {
     fixed: ['source', 'dataset_year', 'dataset_variant', 'fetched_at', 'needs_enrichment'],
     fixedVals: (y) => [`'admin:contracts:${y}'`, String(y), `'admin'`, `'${fetchedAt}'`, '0'],
     keep: (get) => get('Номер на договор') !== null, // only rows with a signed contract
-    // Full capture: every Contracts CSV header (57 cols) lands in staging; the domain promotes a subset.
+    // Full capture: every Contracts JSON header (57 cols) lands in staging; the domain promotes a subset.
     fields: [
       ['seq_no', 'Пореден номер', 'text'],
       ['document_number', 'Номер на документ', 'text'],
@@ -171,7 +277,7 @@ const CATS = {
     fixed: ['source', 'dataset_year', 'fetched_at'],
     fixedVals: (y) => [`'admin:tenders:${y}'`, String(y), `'${fetchedAt}'`],
     keep: () => true,
-    // Full capture: every Tenders CSV header (52 cols).
+    // Full capture: every Tenders JSON header (52 cols).
     fields: [
       ['seq_no', 'Пореден номер', 'text'],
       ['document_number', 'Номер на документ', 'text'],
@@ -233,7 +339,7 @@ const CATS = {
     fixed: ['source', 'dataset_year', 'dataset_variant', 'fetched_at'],
     fixedVals: (y) => [`'admin:annexes:${y}'`, String(y), `'admin'`, `'${fetchedAt}'`],
     keep: (get) => get('Номер на договор') !== null,
-    // Full capture: every Annexes CSV header (37 cols).
+    // Full capture: every Annexes JSON header (37 cols).
     fields: [
       ['seq_no', 'Пореден номер', 'text'],
       ['document_number', 'Номер на документ', 'text'],
@@ -276,20 +382,23 @@ const CATS = {
   },
 };
 
-function extractCsv(cat, year) {
-  const cfg = CATS[cat];
-  const innerZip = `OpenData_${cfg.dir}_${year}.zip`;
-  const tmp = resolve(workDir, `${cat}_${year}`);
-  mkdirSync(tmp, { recursive: true });
-  execFileSync(
-    'unzip',
-    ['-o', '-j', zipFile, `Open_data_resources/${cfg.dir}/${innerZip}`, '-d', tmp],
-    {
-      stdio: 'ignore',
-    },
-  );
-  execFileSync('unzip', ['-o', '-j', resolve(tmp, innerZip), '-d', tmp], { stdio: 'ignore' });
-  return { csv: resolve(tmp, `OpenData_${cfg.dir}.csv`), tmp };
+function jsonAccessor(record) {
+  const byHeader = Object.create(null);
+  for (const [key, value] of Object.entries(record)) byHeader[norm(key)] = value;
+  return {
+    get: (alias) => clean(byHeader[norm(alias)]),
+    raw: (alias) => byHeader[norm(alias)],
+  };
+}
+
+async function* recordsFor(cat, year) {
+  const jsonPath = jsonFileFor(cat, year);
+  if (!existsSync(jsonPath)) {
+    process.stderr.write(`!! ${cat} ${year}: JSON missing ${jsonPath} — skipping\n`);
+    return;
+  }
+  process.stderr.write(`==> ${cat} ${year}: parsing [json]\n`);
+  for await (const record of streamJsonArrayObjects(jsonPath)) yield jsonAccessor(record);
 }
 
 function arg(name) {
@@ -318,31 +427,6 @@ async function loadCategory(cat, years, apply, remote) {
   let maxStmt = 0;
 
   for (const year of years) {
-    let csvPath, tmp;
-    try {
-      ({ csv: csvPath, tmp } = extractCsv(cat, year));
-    } catch {
-      process.stderr.write(`!! ${cat} ${year}: no inner zip — skipping\n`);
-      continue;
-    }
-    if (!existsSync(csvPath)) {
-      process.stderr.write(`!! ${cat} ${year}: CSV missing after extract — skipping\n`);
-      continue;
-    }
-    process.stderr.write(`==> ${cat} ${year}: parsing\n`);
-    const sheetInput = readSheetInput(csvPath);
-    const wb = XLSX.read(sheetInput.data, { type: sheetInput.type, raw: true, dense: true });
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {
-      header: 1,
-      raw: true,
-      defval: null,
-      blankrows: false,
-    });
-    rmSync(tmp, { recursive: true, force: true }); // keep disk low
-
-    const pos = {};
-    (rows[0] || []).forEach((h, i) => (pos[norm(h)] = i));
-    const idxOf = (alias) => pos[norm(alias)];
     const fixedVals = cfg.fixedVals(year);
 
     let batch = [];
@@ -357,17 +441,12 @@ async function loadCategory(cat, years, apply, remote) {
       stmtBytes = headerBytes;
     };
 
-    for (let r = 1; r < rows.length; r++) {
-      const row = rows[r];
-      const get = (alias) => {
-        const i = idxOf(alias);
-        return i === undefined ? null : clean(row[i]);
-      };
+    for await (const record of recordsFor(cat, year)) {
+      const get = record.get;
       if (!cfg.keep(get)) continue;
       const vals = [...fixedVals];
       for (const [, headerName, kind] of cfg.fields) {
-        const i = idxOf(headerName);
-        vals.push(lit(kind, i === undefined ? null : coerce(kind, row[i])));
+        vals.push(lit(kind, coerce(kind, record.raw(headerName))));
       }
       const tuple = `(${vals.join(',')})`;
       const tb = Buffer.byteLength(tuple, 'utf8') + 2;
@@ -403,7 +482,6 @@ async function main() {
   const years = arg('year') ? [Number(arg('year'))] : YEARS;
   const apply = !!arg('apply');
   const remote = !!arg('remote');
-  if (!existsSync(zipFile)) throw new Error(`missing ${zipFile}`);
 
   if (apply) {
     const scope = remote ? '--remote' : '--local';

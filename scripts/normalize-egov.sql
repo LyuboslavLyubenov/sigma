@@ -130,9 +130,17 @@ WHERE c.unp IS NOT NULL
 GROUP BY c.unp;
 
 -- 3) Lots — the lot rows of each procurement (lot_id IS NOT NULL), linked to their tender.
+-- Canonical lot id is `lot:UNP:N` with N the integer lot number. The two feeds disagree on the raw
+-- form — the tender feed numbers lots 1..N, the contract feed (OCDS) uses 'LOT-000N' — so BOTH the
+-- lots id here and the contracts.lot_id below normalise it the same way, or the lots↔contract link
+-- (and the „Обособени позиции" table / current-lot highlight) breaks for the OCDS rows.
 INSERT OR IGNORE INTO lots (id, tender_id, title, cpv_code, estimated_value)
 SELECT
-  'lot:' || t.unp || ':' || t.lot_id,
+  'lot:' || t.unp || ':' || CASE
+    WHEN t.lot_id LIKE 'LOT-%' AND REPLACE(t.lot_id, 'LOT-', '') <> '' AND REPLACE(t.lot_id, 'LOT-', '') NOT GLOB '*[^0-9]*' THEN CAST(REPLACE(t.lot_id, 'LOT-', '') AS INTEGER)
+    WHEN t.lot_id <> '' AND t.lot_id NOT GLOB '*[^0-9]*' THEN CAST(t.lot_id AS INTEGER)
+    ELSE t.lot_id
+  END,
   't:' || t.unp,
   COALESCE(t.lot_name, '(без предмет)'),
   t.cpv_code,
@@ -180,7 +188,7 @@ FROM (
     SELECT
       contractor_name,
       TRIM(CASE WHEN contractor_eik LIKE 'ЕИК %' THEN SUBSTR(contractor_eik, 5) ELSE contractor_eik END) AS eik_clean
-    FROM raw_egov_contracts WHERE source LIKE 'admin:%' OR source LIKE 'ocds:%'
+    FROM raw_egov_contracts WHERE source LIKE 'admin:%' OR source LIKE 'eop:%' OR source LIKE 'ocds:%'
   )
 )
 WHERE bidder_key IS NOT NULL
@@ -235,7 +243,11 @@ SELECT
   CASE WHEN COALESCE(x.currency, 'BGN') NOT IN ('BGN', 'EUR')
     THEN (SELECT f.eur_per_unit FROM fx_rates f WHERE f.base_currency = x.currency AND f.rate_date = x.contract_date)
     ELSE NULL END,
-  CASE WHEN x.lot_id IS NOT NULL AND TRIM(x.lot_id) <> '' THEN 'lot:' || x.unp || ':' || x.lot_id ELSE NULL END,
+  CASE WHEN x.lot_id IS NOT NULL AND TRIM(x.lot_id) <> '' THEN 'lot:' || x.unp || ':' || CASE
+    WHEN x.lot_id LIKE 'LOT-%' AND REPLACE(x.lot_id, 'LOT-', '') <> '' AND REPLACE(x.lot_id, 'LOT-', '') NOT GLOB '*[^0-9]*' THEN CAST(REPLACE(x.lot_id, 'LOT-', '') AS INTEGER)
+    WHEN x.lot_id <> '' AND x.lot_id NOT GLOB '*[^0-9]*' THEN CAST(x.lot_id AS INTEGER)
+    ELSE x.lot_id
+  END ELSE NULL END,
   x.document_number,
   x.published_at,
   x.contract_subject,
@@ -283,10 +295,10 @@ FROM (
     -- admin always; an OCDS row only when no admin row shares its contract_number — admin wins.
     -- Key is contract_number (the АОП contract document number, common to both feeds), NOT unp:
     -- OCDS stores its ocid ('ocds-…') in unp, which never matches the admin УНП format. (idx_egov_cnum)
-    WHERE c.source LIKE 'admin:%'
+    WHERE c.source LIKE 'eop:%'
        OR (c.source LIKE 'ocds:%' AND c.contract_number IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM raw_egov_contracts a
-            WHERE a.source LIKE 'admin:%' AND a.contract_number = c.contract_number))
+            WHERE a.source LIKE 'eop:%' AND a.contract_number = c.contract_number))
   ) y
 ) x
 WHERE x.bidder_key IS NOT NULL
@@ -336,7 +348,7 @@ WHERE authorities.nuts IS NOT NULL AND authorities.region IS NULL;
 DELETE FROM data_freshness;
 INSERT INTO data_freshness (source, as_of, rows, refreshed_at)
 SELECT
-  CASE WHEN source LIKE 'admin:%' THEN 'admin' WHEN source LIKE 'ocds:%' THEN 'ocds' ELSE 'other' END AS src,
+  CASE WHEN source LIKE 'eop:%' THEN 'eop' WHEN source LIKE 'admin:%' THEN 'admin' WHEN source LIKE 'ocds:%' THEN 'ocds' ELSE 'other' END AS src,
   MAX(CASE WHEN contract_date <= date('now') THEN contract_date END),
   COUNT(*),
   datetime('now')
@@ -370,10 +382,10 @@ SELECT
           ELSE NULL
         END AS bidder_key
       FROM raw_egov_contracts c
-      WHERE c.source LIKE 'admin:%'
+      WHERE c.source LIKE 'eop:%'
          OR (c.source LIKE 'ocds:%' AND c.contract_number IS NOT NULL AND NOT EXISTS (
               SELECT 1 FROM raw_egov_contracts a
-              WHERE a.source LIKE 'admin:%' AND a.contract_number = c.contract_number))
+              WHERE a.source LIKE 'eop:%' AND a.contract_number = c.contract_number))
     ) c
     WHERE c.bidder_key IS NOT NULL
       AND CASE c.value_flag

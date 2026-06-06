@@ -17,8 +17,6 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - name: Dependency audit
-        continue-on-error: true
-        # TODO: flip to blocking once xlsx@0.18.5 is upgraded to a patched build.
         run: pnpm audit --audit-level=high
       - name: Secret scan
         uses: gitleaks/gitleaks-action@v2

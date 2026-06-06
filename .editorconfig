@@ -11,5 +11,5 @@ trim_trailing_whitespace = true
 [*.md]
 trim_trailing_whitespace = false
 
-[*.{sql,xlsx}]
+[*.sql]
 insert_final_newline = false
