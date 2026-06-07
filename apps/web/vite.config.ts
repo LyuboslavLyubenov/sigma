@@ -22,6 +22,10 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   server: {
+    // Bind all interfaces (IPv4 0.0.0.0 + IPv6) so devcontainer/host port-forwarding,
+    // which connects over IPv4 127.0.0.1, can reach the server. Defaulting to `localhost`
+    // resolves to IPv6 ::1 only on this box, leaving 127.0.0.1 unbound.
+    host: true,
     port: 5173,
   },
 });
