@@ -307,7 +307,19 @@ FROM (
     -- EOP always; an OCDS row only when no EOP row shares its contract_number - EOP wins.
     -- Key is contract_number (the public-procurement contract document number, common to both feeds), NOT unp:
     -- OCDS stores its ocid in unp, which never matches the EOP UNP format. (idx_egov_cnum)
-    WHERE c.source LIKE 'eop:%'
+    -- EOP daily open-data buckets are CUMULATIVE: the same contract recurs across consecutive days,
+    -- so keep exactly ONE row per logical contract (unp+contract_number+lot+contractor), choosing the
+    -- latest source-day (then highest id). Without this, contracts and every EUR total double-count.
+    -- The NOT EXISTS leads with contract_number so idx_egov_cnum/idx_egov_unp_cnum keep it cheap.
+    WHERE (c.source LIKE 'eop:%' AND NOT EXISTS (
+            SELECT 1 FROM raw_egov_contracts a
+            WHERE a.source LIKE 'eop:%'
+              AND a.contract_number = c.contract_number
+              AND COALESCE(a.unp, '') = COALESCE(c.unp, '')
+              AND COALESCE(a.lot_id, '') = COALESCE(c.lot_id, '')
+              AND COALESCE(a.contractor_eik, '') = COALESCE(c.contractor_eik, '')
+              AND COALESCE(a.contractor_name, '') = COALESCE(c.contractor_name, '')
+              AND (a.source > c.source OR (a.source = c.source AND a.id > c.id))))
        OR (c.source LIKE 'ocds:%' AND c.contract_number IS NOT NULL AND NOT EXISTS (
             SELECT 1 FROM raw_egov_contracts a
             WHERE a.source LIKE 'eop:%' AND a.contract_number = c.contract_number))
