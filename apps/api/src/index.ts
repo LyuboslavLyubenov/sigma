@@ -19,7 +19,7 @@ function apiSecurityHeaders(): Record<string, string> {
     'Referrer-Policy': 'no-referrer',
     // HSTS should be added in prod once HTTPS-only deployment is confirmed.
     // Exact licence/attribution text is a team/legal decision.
-    'X-Data-Source': 'AOP/TR via data.egov.bg',
+    'X-Data-Source': 'AOP via storage.eop.bg; TR via data.egov.bg',
   };
 }
 

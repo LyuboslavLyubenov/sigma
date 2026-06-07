@@ -4,8 +4,8 @@ compatibility_date = "2025-05-01"
 compatibility_flags = ["nodejs_compat"]
 workers_dev = false
 
-# Intentionally cron-only: NO public route, NO custom domain, NO HTTP trigger — this is a scheduled()-only Worker
-# (workers_dev = false above). The BG-located proxy for data.egov.bg is tracked in docs/io-letter-sigma.md item 5.
+# Intentionally cron-only: NO public route, NO custom domain, NO HTTP trigger - this is a scheduled()-only Worker
+# (workers_dev = false above).
 
 # Bundle the scoped re-derive script (scripts/refresh-slice.sql) as a text module the Workflow runs.
 # fallthrough keeps wrangler's default text rules (.txt/.html) active alongside this one.
@@ -17,6 +17,9 @@ fallthrough = true
 [dev]
 port = 8789
 
+[vars]
+EOP_OPEN_DATA_BASE_URL = "https://storage.eop.bg"
+
 # `database_id` is a zero-UUID placeholder for local dev (miniflare). `pnpm --filter @sigma/etl run
 # deploy` substitutes SIGMA_D1_ID into wrangler.deploy.toml via scripts/wrangler-render.mjs.
 [[d1_databases]]
@@ -24,8 +27,7 @@ binding = "DB"
 database_name = "sigma"
 database_id = "00000000-0000-0000-0000-000000000000"
 
-# On-platform data refresh (replaces the GitHub cron). scheduled() kicks one durable Workflow run;
-# the Queue fan-out for the TR full backfill is deferred (see docs/etl-pipeline.md).
+# On-platform small-window data refresh. scheduled() kicks one durable Workflow run.
 [[workflows]]
 binding = "REFRESH"
 name = "sigma-refresh"

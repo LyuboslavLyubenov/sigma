@@ -130,7 +130,8 @@ export function unp(value: string | null | undefined): string {
 /**
  * Parse the consortium `bidders.name` string into a participants view.
  *
- * The upstream feed (AOP / data.egov.bg) gives us a single `contractor_name` string for an award;
+ * The upstream procurement feed (AOP / storage.eop.bg) gives us a single `contractor_name` string
+ * for an award;
  * for an обединение / ДЗЗД that string concatenates the members. Three real shapes appear in the
  * production dataset (n=3736 consortium rows as of 2026-06):
  *

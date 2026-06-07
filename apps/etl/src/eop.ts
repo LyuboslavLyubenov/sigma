@@ -1,0 +1,284 @@
+import {
+  classifyBucketKey,
+  computeCatchupWindow,
+  daysInWindow,
+  releaseToAmendments,
+  releaseToAwardSuppliers,
+  releaseToContracts,
+  releaseToLots,
+  releaseToParties,
+  upsertAmendmentStaging,
+  upsertAwardSupplierStaging,
+  upsertContractStaging,
+  upsertLotStaging,
+  upsertPartyStaging,
+  type BucketKeyKind,
+  type OcdsMeta,
+  type OcdsPackage,
+} from '@sigma/ingest';
+
+const DEFAULT_BASE_URL = 'https://storage.eop.bg';
+const DEFAULT_LOOKBACK_DAYS = 3;
+const MAX_WORKER_WINDOW_DAYS = 21;
+const MS_PER_DAY = 86_400_000;
+
+type BucketKeys = Partial<Record<BucketKeyKind, string>>;
+
+interface LatestLoadedRow {
+  rows: number;
+  max_source_day: string | null;
+  max_published_at: string | null;
+}
+
+interface FreshnessRow {
+  max_loaded_date: string | null;
+}
+
+export interface CatchupPlan {
+  maxLoadedDate: string | null;
+  from: string;
+  to: string;
+  gapDays: number;
+  capped: boolean;
+  originalFrom: string;
+  originalGapDays: number;
+}
+
+export interface BucketListing {
+  day: string;
+  bucketUrl: string;
+  keys: BucketKeys;
+}
+
+export interface OcdsStageCounts {
+  contracts: number;
+  amendments: number;
+  parties: number;
+  awardSuppliers: number;
+  lots: number;
+}
+
+export interface DayIngestResult extends OcdsStageCounts {
+  day: string;
+  found: boolean;
+}
+
+const dayUrl = (baseUrl: string, day: string): string =>
+  `${baseUrl.replace(/\/+$/, '')}/open-data-${day}/`;
+
+const objectUrl = (bucketUrl: string, key: string): string =>
+  `${bucketUrl}${encodeURIComponent(key)}`;
+
+function decodeXml(s: string): string {
+  return s
+    .replace(/&lt;/g, '<')
+    .replace(/&gt;/g, '>')
+    .replace(/&quot;/g, '"')
+    .replace(/&apos;/g, "'")
+    .replace(/&amp;/g, '&');
+}
+
+export function parseBucketKeys(xml: string): string[] {
+  const keys: string[] = [];
+  const re = /<Key>([\s\S]*?)<\/Key>/g;
+  let m: RegExpExecArray | null;
+  while ((m = re.exec(xml)) !== null) keys.push(decodeXml(m[1] ?? ''));
+  return keys;
+}
+
+function addDays(day: string, days: number): string {
+  const d = new Date(`${day}T00:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function enumerateDays(from: string, to: string): string[] {
+  const start = Date.parse(`${from}T00:00:00Z`);
+  const end = Date.parse(`${to}T00:00:00Z`);
+  const days: string[] = [];
+  for (let t = start; t <= end; t += MS_PER_DAY) days.push(new Date(t).toISOString().slice(0, 10));
+  return days;
+}
+
+function packageReleases(
+  pkg: OcdsPackage | { data?: OcdsPackage },
+): NonNullable<OcdsPackage['releases']> {
+  if ('releases' in pkg && Array.isArray(pkg.releases)) return pkg.releases;
+  if ('data' in pkg && Array.isArray(pkg.data?.releases)) return pkg.data.releases;
+  return [];
+}
+
+function packagePublishedDate(pkg: OcdsPackage | { data?: OcdsPackage }): string | undefined {
+  if ('publishedDate' in pkg && pkg.publishedDate) return pkg.publishedDate;
+  if ('data' in pkg) return pkg.data?.publishedDate;
+  return undefined;
+}
+
+export async function latestLoadedDate(db: D1Database): Promise<string | null> {
+  const row = await db
+    .prepare(
+      `SELECT
+         COUNT(*) AS rows,
+         MAX(CASE
+           WHEN substr(source, length(source) - 9, 10) GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+           THEN substr(source, length(source) - 9, 10)
+         END) AS max_source_day,
+         MAX(CASE
+           WHEN published_at GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'
+           THEN published_at
+         END) AS max_published_at
+       FROM raw_egov_contracts
+       WHERE source LIKE 'eop:%' OR source LIKE 'ocds:%'`,
+    )
+    .first<LatestLoadedRow>();
+
+  if (Number(row?.rows ?? 0) > 0) return row?.max_source_day ?? row?.max_published_at ?? null;
+
+  const fallback = await db
+    .prepare(
+      `SELECT MAX(as_of) AS max_loaded_date
+       FROM data_freshness
+       WHERE source IN ('eop', 'ocds')
+         AND as_of GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'`,
+    )
+    .first<FreshnessRow>();
+  return fallback?.max_loaded_date ?? null;
+}
+
+export async function computeWorkerCatchupPlan(
+  db: D1Database,
+  opts: { today?: string; lookbackDays?: number; maxWindowDays?: number } = {},
+): Promise<CatchupPlan> {
+  const today = opts.today ?? new Date().toISOString().slice(0, 10);
+  const lookbackDays = opts.lookbackDays ?? DEFAULT_LOOKBACK_DAYS;
+  const maxWindowDays = opts.maxWindowDays ?? MAX_WORKER_WINDOW_DAYS;
+  const maxLoadedDate = await latestLoadedDate(db);
+  const window = computeCatchupWindow({ maxLoadedDate, today, lookbackDays });
+  const originalGapDays = daysInWindow(window.from, window.to);
+  if (originalGapDays <= maxWindowDays) {
+    return {
+      maxLoadedDate,
+      from: window.from,
+      to: window.to,
+      gapDays: originalGapDays,
+      capped: false,
+      originalFrom: window.from,
+      originalGapDays,
+    };
+  }
+
+  const cappedFrom = addDays(today, -(maxWindowDays - 1));
+  return {
+    maxLoadedDate,
+    from: cappedFrom,
+    to: today,
+    gapDays: daysInWindow(cappedFrom, today),
+    capped: true,
+    originalFrom: window.from,
+    originalGapDays,
+  };
+}
+
+export async function listBucketForDay(
+  day: string,
+  opts: { baseUrl?: string } = {},
+): Promise<BucketListing | null> {
+  const bucketUrl = dayUrl(opts.baseUrl ?? DEFAULT_BASE_URL, day);
+  const res = await fetch(bucketUrl);
+  if (res.status === 403 || res.status === 404) return null;
+  if (!res.ok) throw new Error(`bucket ${day}: HTTP ${res.status}`);
+
+  const keys: BucketKeys = {};
+  for (const key of parseBucketKeys(await res.text())) {
+    const kind = classifyBucketKey(key);
+    if (kind && !keys[kind]) keys[kind] = key;
+  }
+  return { day, bucketUrl, keys };
+}
+
+async function fetchJson(url: string): Promise<unknown> {
+  const res = await fetch(url);
+  if (!res.ok) throw new Error(`${url}: HTTP ${res.status}`);
+  return res.json();
+}
+
+export async function stageOcdsFromBucket(
+  db: D1Database,
+  listing: BucketListing,
+  fetchedAt: string,
+): Promise<OcdsStageCounts> {
+  const key = listing.keys.ocds;
+  const source = `ocds:${listing.day}`;
+  if (!key) {
+    await Promise.all([
+      upsertContractStaging(db, source, []),
+      upsertAmendmentStaging(db, source, []),
+      upsertPartyStaging(db, source, []),
+      upsertAwardSupplierStaging(db, source, []),
+      upsertLotStaging(db, source, []),
+    ]);
+    return { contracts: 0, amendments: 0, parties: 0, awardSuppliers: 0, lots: 0 };
+  }
+
+  const resourceUri = objectUrl(listing.bucketUrl, key);
+  const pkg = (await fetchJson(resourceUri)) as OcdsPackage | { data?: OcdsPackage };
+  const meta: OcdsMeta = {
+    source,
+    datasetUri: listing.bucketUrl,
+    resourceUri,
+    year: Number(listing.day.slice(0, 4)),
+    fetchedAt,
+    publishedDate: packagePublishedDate(pkg),
+  };
+
+  const releases = packageReleases(pkg);
+  const contracts = releases.flatMap((rel) => releaseToContracts(rel, meta));
+  const amendments = releases.flatMap((rel) => releaseToAmendments(rel, meta));
+  const parties = releases.flatMap((rel) => releaseToParties(rel, meta));
+  const awardSuppliers = releases.flatMap((rel) => releaseToAwardSuppliers(rel, meta));
+  const lots = releases.flatMap((rel) => releaseToLots(rel, meta));
+
+  await upsertContractStaging(db, source, contracts);
+  await upsertAmendmentStaging(db, source, amendments);
+  await upsertPartyStaging(db, source, parties);
+  await upsertAwardSupplierStaging(db, source, awardSuppliers);
+  await upsertLotStaging(db, source, lots);
+
+  return {
+    contracts: contracts.length,
+    amendments: amendments.length,
+    parties: parties.length,
+    awardSuppliers: awardSuppliers.length,
+    lots: lots.length,
+  };
+}
+
+export async function ingestOcdsWindow(
+  db: D1Database,
+  plan: Pick<CatchupPlan, 'from' | 'to'>,
+  opts: { baseUrl?: string; fetchedAt?: string } = {},
+): Promise<DayIngestResult[]> {
+  const fetchedAt = opts.fetchedAt ?? new Date().toISOString();
+  const out: DayIngestResult[] = [];
+  for (const day of enumerateDays(plan.from, plan.to)) {
+    const listing = await listBucketForDay(day, { baseUrl: opts.baseUrl });
+    if (!listing) {
+      out.push({
+        day,
+        found: false,
+        contracts: 0,
+        amendments: 0,
+        parties: 0,
+        awardSuppliers: 0,
+        lots: 0,
+      });
+      continue;
+    }
+
+    // The Worker currently stages only the in-bucket OCDS enrichment. The plain base JSON coercion
+    // remains in the CLI until that mapping is extracted into a shared package safe for Workers.
+    const counts = await stageOcdsFromBucket(db, listing, fetchedAt);
+    out.push({ day, found: true, ...counts });
+  }
+  return out;
+}
