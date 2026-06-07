@@ -8,7 +8,14 @@ import { FilterRail, type FilterGroup } from '../components/FilterRail';
 import { ListControls } from '../components/ListControls';
 import { Pagination } from '../components/Pagination';
 import { Callout } from '../components/ui';
-import { buildSectorGroup, getMulti, pageNav, withParams, PAGE_SIZE } from '../lib/filters';
+import {
+  buildSectorGroup,
+  getMulti,
+  leaderboardRankOffset,
+  pageNav,
+  withParams,
+  PAGE_SIZE,
+} from '../lib/filters';
 import { publicCache } from '../lib/cache';
 
 const VALUE_BUCKETS = [
@@ -110,7 +117,7 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
     },
   ];
 
-  const startRank = 0;
+  const startRank = leaderboardRankOffset(nav.page, PAGE_SIZE.contracts);
 
   return (
     <>

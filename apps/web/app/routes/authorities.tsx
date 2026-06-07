@@ -10,7 +10,14 @@ import { ListControls } from '../components/ListControls';
 import { Pagination } from '../components/Pagination';
 import { DataTable, type Column } from '../components/DataTable';
 import { Callout, Chip } from '../components/ui';
-import { buildSectorGroup, getMulti, pageNav, withParams, PAGE_SIZE } from '../lib/filters';
+import {
+  buildSectorGroup,
+  getMulti,
+  leaderboardRankOffset,
+  pageNav,
+  withParams,
+  PAGE_SIZE,
+} from '../lib/filters';
 import { publicCache } from '../lib/cache';
 
 export function meta(_: Route.MetaArgs) {
@@ -51,7 +58,7 @@ export default function Authorities({ loaderData }: Route.ComponentProps) {
     nextCursor: page.nextCursor,
     prevCursor: page.prevCursor,
   });
-  const startRank = 0;
+  const startRank = leaderboardRankOffset(nav.page, PAGE_SIZE.authorities);
   const csvHref = `/authorities.csv${withParams(sp, { cursor: null, page: null, q: null })}`;
   const busy = useNavigation().state !== 'idle';
 

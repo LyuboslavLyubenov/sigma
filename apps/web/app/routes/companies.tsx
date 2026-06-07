@@ -14,6 +14,7 @@ import {
   buildSectorGroup,
   companyListParams,
   getMulti,
+  leaderboardRankOffset,
   pageNav,
   withParams,
   PAGE_SIZE,
@@ -75,7 +76,7 @@ export default function Companies({ loaderData }: Route.ComponentProps) {
     nextCursor: page.nextCursor,
     prevCursor: page.prevCursor,
   });
-  const startRank = 0;
+  const startRank = leaderboardRankOffset(nav.page, PAGE_SIZE.companies);
   const csvHref = `/companies.csv${withParams(sp, { cursor: null, page: null, q: null })}`;
   const busy = useNavigation().state !== 'idle';
 

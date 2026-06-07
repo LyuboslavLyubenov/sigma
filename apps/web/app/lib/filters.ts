@@ -159,6 +159,10 @@ export interface PageNav {
   nextHref: string | null;
 }
 
+export function leaderboardRankOffset(page: number, pageSize: number): number {
+  return (page - 1) * pageSize;
+}
+
 /** Compute Prev/Next hrefs + page display from keyset cursors and the URL's `page` marker. */
 export function pageNav(opts: {
   base: URLSearchParams;

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { CPV_SECTORS } from '@sigma/config';
-import { companyListParams, getMulti, MAX_MULTI_VALUES } from './filters';
+import { companyListParams, getMulti, leaderboardRankOffset, MAX_MULTI_VALUES } from './filters';
 
 describe('getMulti', () => {
   it('caps repeated and CSV multi-value params', () => {
@@ -47,5 +47,13 @@ describe('getMulti', () => {
       years: ['2024', '2016', 'unknown'],
       eu: 'eu',
     });
+  });
+});
+
+describe('leaderboardRankOffset', () => {
+  it('continues rank numbering across paged keyset results', () => {
+    expect(leaderboardRankOffset(1, 25)).toBe(0);
+    expect(leaderboardRankOffset(2, 25)).toBe(25);
+    expect(leaderboardRankOffset(3, 15)).toBe(30);
   });
 });
