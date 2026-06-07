@@ -7,6 +7,7 @@ import { CPV_SECTORS } from '@sigma/config';
 import { csvCell } from './csv';
 import { keyset, pageCursors } from './keyset';
 import { toAuthorityListItem, typeLabel, type AuthorityTotalsRow } from './rows';
+import { searchMatchQuery } from './search';
 
 export type AuthoritySort = 'spent' | 'count' | 'avg' | 'name';
 
@@ -16,6 +17,7 @@ export interface AuthorityListParams {
   sectors?: string[];
   years?: string[];
   eu?: 'eu' | 'national' | null;
+  q?: string | null;
   cursor?: string | null;
   pageSize?: number;
 }
@@ -70,10 +72,20 @@ function source(p: AuthorityListParams): { from: string; params: unknown[] } {
 
 function entityWhere(p: AuthorityListParams): { sql: string; params: unknown[] } {
   // The type facet shows all 7 buckets; a filter is only meaningful when a strict subset is selected.
+  const where: string[] = [];
+  const params: unknown[] = [];
   if (p.types?.length && p.types.length < 7) {
-    return { sql: `type_group IN (${qs(p.types.length)})`, params: [...p.types] };
+    where.push(`type_group IN (${qs(p.types.length)})`);
+    params.push(...p.types);
   }
-  return { sql: '', params: [] };
+  const match = searchMatchQuery(p.q ?? '');
+  if (match) {
+    where.push(
+      `authority_id IN (SELECT ref FROM search_index WHERE kind = 'authority' AND search_index MATCH ?)`,
+    );
+    params.push(match);
+  }
+  return { sql: where.join(' AND '), params };
 }
 
 export async function listAuthorities(

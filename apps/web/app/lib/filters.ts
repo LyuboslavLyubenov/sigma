@@ -38,6 +38,7 @@ export function companyListParams(sp: URLSearchParams) {
     sectors: getMulti(sp, 'sector'),
     years: getMulti(sp, 'year'),
     eu: (sp.get('eu') as 'eu' | 'national' | null) || null,
+    q: sp.get('q'),
   };
 }
 

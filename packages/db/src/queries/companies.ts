@@ -7,6 +7,7 @@ import { CPV_SECTORS, ENTITY_TYPES } from '@sigma/config';
 import { csvCell } from './csv';
 import { keyset, pageCursors } from './keyset';
 import { toCompanyListItem, type CompanyTotalsRow } from './rows';
+import { searchMatchQuery } from './search';
 
 export type CompanySort = 'won' | 'count' | 'authorities' | 'name';
 
@@ -17,6 +18,7 @@ export interface CompanyListParams {
   sectors?: string[];
   years?: string[];
   eu?: 'eu' | 'national' | null;
+  q?: string | null;
   cursor?: string | null;
   pageSize?: number;
 }
@@ -87,6 +89,13 @@ function entityWhere(p: CompanyListParams): { sql: string; params: unknown[] } {
     params.push(p.kinds[0]);
   }
   if (p.countBucket && COUNT_BUCKETS[p.countBucket]) where.push(COUNT_BUCKETS[p.countBucket]!);
+  const match = searchMatchQuery(p.q ?? '');
+  if (match) {
+    where.push(
+      `bidder_id IN (SELECT ref FROM search_index WHERE kind = 'company' AND search_index MATCH ?)`,
+    );
+    params.push(match);
+  }
   return { sql: where.join(' AND '), params };
 }
 

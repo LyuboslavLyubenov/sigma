@@ -6,12 +6,30 @@
 import type { SearchHit, SearchResults } from '@sigma/api-contract';
 import { hrefForEntity } from './identity';
 
-type Kind = 'authority' | 'company' | 'contract';
+export type SearchKind = 'authority' | 'company' | 'contract';
 
-const GROUPS: { kind: Kind; label: string; amountLabel: string; limit: number }[] = [
-  { kind: 'authority', label: 'Институции', amountLabel: 'общо похарчено', limit: 6 },
-  { kind: 'company', label: 'Компании', amountLabel: 'общо спечелено', limit: 6 },
-  { kind: 'contract', label: 'Договори', amountLabel: 'стойност', limit: 6 },
+const GROUPS: {
+  kind: SearchKind;
+  label: string;
+  amountLabel: string;
+  limit: number;
+  path: string;
+}[] = [
+  {
+    kind: 'authority',
+    label: 'Институции',
+    amountLabel: 'общо похарчено',
+    limit: 6,
+    path: '/authorities',
+  },
+  {
+    kind: 'company',
+    label: 'Компании',
+    amountLabel: 'общо спечелено',
+    limit: 6,
+    path: '/companies',
+  },
+  { kind: 'contract', label: 'Договори', amountLabel: 'стойност', limit: 6, path: '/contracts' },
 ];
 
 // Common Latin↔Cyrillic confusables (homoglyphs). People paste names where a few Cyrillic letters
@@ -53,10 +71,34 @@ function deHomoglyph(q: string): string {
  *  Cyrillic letter — that's the „I meant Cyrillic but typed a stray Latin o" case. A pure-Latin
  *  term like „ALSTOM" passes through untouched, otherwise its Latin a/o/t/m would be swapped to
  *  Cyrillic and the resulting mixed-script token would match nothing in the index. */
-function ftsQuery(q: string): string | null {
+export function searchMatchQuery(q: string): string | null {
   const terms = q.toLowerCase().match(/[\p{L}\p{N}]+/gu);
   if (!terms || terms.length === 0) return null;
   return terms.map((t) => `${CYRILLIC.test(t) ? deHomoglyph(t) : t}*`).join(' ');
+}
+
+export function searchMoreHref(kind: SearchKind, query: string): string {
+  const group = GROUPS.find((g) => g.kind === kind);
+  const params = new URLSearchParams({ q: query });
+  return `${group?.path ?? '/search'}?${params.toString()}`;
+}
+
+export function distinctSearchTitleParts(title: string): string[] {
+  const parts = title
+    .split(';')
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  const seen = new Set<string>();
+  const distinct: string[] = [];
+
+  for (const part of parts) {
+    const key = part.toLocaleLowerCase('bg');
+    if (seen.has(key)) continue;
+    seen.add(key);
+    distinct.push(part);
+  }
+
+  return distinct.length ? distinct : [];
 }
 
 interface HitRow {
@@ -69,7 +111,7 @@ interface HitRow {
 
 export async function search(db: D1Database, rawQuery: string): Promise<SearchResults> {
   const query = (rawQuery ?? '').trim();
-  const match = ftsQuery(query);
+  const match = searchMatchQuery(query);
   // No searchable content (empty, or punctuation-only like a lone „"") → empty-query shape, with the
   // term normalized to '' so the page falls back to the generic „Търсене" header instead of echoing
   // the stray punctuation in the H1.
@@ -81,7 +123,7 @@ export async function search(db: D1Database, rawQuery: string): Promise<SearchRe
       `SELECT kind, COUNT(*) AS n FROM search_index WHERE search_index MATCH ? GROUP BY kind`,
     )
     .bind(match)
-    .all<{ kind: Kind; n: number }>();
+    .all<{ kind: SearchKind; n: number }>();
   const counts = new Map(countRows.results.map((r) => [r.kind, r.n]));
 
   const groups = await Promise.all(
@@ -108,7 +150,13 @@ export async function search(db: D1Database, rawQuery: string): Promise<SearchRe
           amountLabel: g.amountLabel,
         };
       });
-      return { kind: g.kind, label: g.label, total, hits, moreHref: null };
+      return {
+        kind: g.kind,
+        label: g.label,
+        total,
+        hits,
+        moreHref: total > hits.length ? searchMoreHref(g.kind, query) : null,
+      };
     }),
   );
 

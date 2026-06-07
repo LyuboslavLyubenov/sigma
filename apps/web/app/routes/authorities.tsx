@@ -40,6 +40,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     sectors: getMulti(sp, 'sector'),
     years: getMulti(sp, 'year'),
     eu: (sp.get('eu') as 'eu' | 'national' | null) || null,
+    q: sp.get('q'),
     cursor: sp.get('cursor'),
     pageSize: PAGE_SIZE.authorities,
   };
@@ -65,7 +66,7 @@ export default function Authorities({ loaderData }: Route.ComponentProps) {
     prevCursor: page.prevCursor,
   });
   const startRank = leaderboardRankOffset(nav.page, PAGE_SIZE.authorities);
-  const csvHref = `/authorities.csv${withParams(sp, { cursor: null, page: null, q: null })}`;
+  const csvHref = `/authorities.csv${withParams(sp, { cursor: null, page: null })}`;
   const busy = useNavigation().state !== 'idle';
 
   const groups: FilterGroup[] = [

@@ -16,6 +16,7 @@ export function loader({ request, context }: Route.LoaderArgs) {
       eu: (sp.get('eu') as 'eu' | 'national' | null) || null,
       authority: sp.get('authority'),
       bidder: sp.get('bidder'),
+      q: sp.get('q'),
     }),
   );
 }

@@ -51,6 +51,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     eu: (sp.get('eu') as 'eu' | 'national' | null) || null,
     authority: sp.get('authority'),
     bidder: sp.get('bidder'),
+    q: sp.get('q'),
     cursor: sp.get('cursor'),
     pageSize: PAGE_SIZE.contracts,
   };
@@ -75,7 +76,7 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
     nextCursor: result.nextCursor,
     prevCursor: result.prevCursor,
   });
-  const csvHref = `/contracts.csv${withParams(sp, { cursor: null, page: null, q: null })}`;
+  const csvHref = `/contracts.csv${withParams(sp, { cursor: null, page: null })}`;
   const filtered = sp.get('authority') || sp.get('bidder');
   const busy = useNavigation().state !== 'idle';
 

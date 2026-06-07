@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { count, money, plural } from '@sigma/shared';
-import { search } from '@sigma/db';
+import { distinctSearchTitleParts, search } from '@sigma/db';
 import type { Route } from './+types/search';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { PageHeader } from '../components/PageHeader';
@@ -87,6 +87,27 @@ function highlight(text: string | null, re: RegExp | null): ReactNode {
   return text.split(re).map((part, i) => (i % 2 === 1 ? <mark key={i}>{part}</mark> : part));
 }
 
+function titleParts(hit: { kind: string; ident: string | null; title: string }): string[] {
+  if (hit.kind !== 'company' || hit.ident) return [hit.title];
+  const parts = distinctSearchTitleParts(hit.title);
+  return parts.length ? parts : [hit.title];
+}
+
+function renderTitle(
+  hit: { kind: string; ident: string | null; title: string },
+  re: RegExp | null,
+) {
+  const parts = titleParts(hit);
+  if (parts.length === 1) return highlight(parts[0]!, re);
+  return (
+    <span className="name-parts">
+      {parts.map((part) => (
+        <span key={part}>{highlight(part, re)}</span>
+      ))}
+    </span>
+  );
+}
+
 export default function Search({ loaderData }: Route.ComponentProps) {
   const { results } = loaderData;
   const tokens = normalizedTerms(results.query, MAX_HIGHLIGHT_TOKENS);
@@ -137,13 +158,19 @@ export default function Search({ loaderData }: Route.ComponentProps) {
                     ? `над ${count(g.hits.length)} от ${count(g.total)}`
                     : count(g.total)}{' '}
                   {plural(g.total, 'съвпадение', 'съвпадения')}
+                  {g.moreHref && (
+                    <>
+                      {' '}
+                      · <Link to={g.moreHref}>виж всички</Link>
+                    </>
+                  )}
                 </span>
               </div>
               {g.hits.map((h) => (
                 <Link to={h.href} className="result" key={h.slug + h.title}>
                   <span className="kind">{KIND_LABEL[h.kind]}</span>
                   <span>
-                    <p className="name">{highlight(h.title, highlightRe)}</p>
+                    <p className="name">{renderTitle(h, highlightRe)}</p>
                     <p className="meta">
                       {h.kind === 'contract' ? (
                         <>

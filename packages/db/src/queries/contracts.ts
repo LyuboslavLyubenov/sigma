@@ -7,6 +7,7 @@ import { entityName } from '@sigma/shared';
 import { csvCell } from './csv';
 import { authoritySlug, bidderIdFromSlug, companySlug, contractSlug } from './identity';
 import { keyset, pageCursors } from './keyset';
+import { searchMatchQuery } from './search';
 
 export type ContractSort = 'value-desc' | 'value-asc' | 'date-desc' | 'date-asc';
 
@@ -19,6 +20,7 @@ export interface ContractListParams {
   eu?: 'eu' | 'national' | null;
   authority?: string | null; // authority ЕИК (slug)
   bidder?: string | null; // bidder slug
+  q?: string | null;
   cursor?: string | null;
   pageSize?: number;
 }
@@ -125,6 +127,13 @@ function buildFilters(p: ContractListParams): { sql: string; params: unknown[] }
     } else {
       where.push('1=0');
     }
+  }
+  const match = searchMatchQuery(p.q ?? '');
+  if (match) {
+    where.push(
+      `c.id IN (SELECT ref FROM search_index WHERE kind = 'contract' AND search_index MATCH ?)`,
+    );
+    params.push(match);
   }
   return { sql: where.length ? ' WHERE ' + where.join(' AND ') : '', params };
 }

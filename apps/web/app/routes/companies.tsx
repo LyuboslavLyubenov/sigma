@@ -48,6 +48,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   const sp = new URL(request.url).searchParams;
   const params = {
     ...companyListParams(sp),
+    q: sp.get('q'),
     cursor: sp.get('cursor'),
     pageSize: PAGE_SIZE.companies,
   };
@@ -82,7 +83,7 @@ export default function Companies({ loaderData }: Route.ComponentProps) {
     prevCursor: page.prevCursor,
   });
   const startRank = leaderboardRankOffset(nav.page, PAGE_SIZE.companies);
-  const csvHref = `/companies.csv${withParams(sp, { cursor: null, page: null, q: null })}`;
+  const csvHref = `/companies.csv${withParams(sp, { cursor: null, page: null })}`;
   const busy = useNavigation().state !== 'idle';
 
   const groups: FilterGroup[] = [

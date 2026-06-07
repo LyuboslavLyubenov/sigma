@@ -12,6 +12,7 @@ export function loader({ request, context }: Route.LoaderArgs) {
       sectors: getMulti(sp, 'sector'),
       years: getMulti(sp, 'year'),
       eu: (sp.get('eu') as 'eu' | 'national' | null) || null,
+      q: sp.get('q'),
     }),
   );
 }
