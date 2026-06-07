@@ -1,7 +1,7 @@
 import { WorkflowEntrypoint, type WorkflowEvent, type WorkflowStep } from 'cloudflare:workers';
 import { runRefreshSlice } from '@sigma/ingest';
 import refreshSliceSql from '../../../scripts/refresh-slice.sql';
-import { computeWorkerCatchupPlan, ingestOcdsWindow, type CatchupPlan } from './eop';
+import { computeWorkerCatchupPlan, ingestBucketWindow, type CatchupPlan } from './eop';
 
 export interface Env {
   DB: D1Database;
@@ -29,9 +29,18 @@ interface RefreshResult {
   derived: number;
 }
 
-function stagedRows(results: Awaited<ReturnType<typeof ingestOcdsWindow>>): number {
+function stagedRows(results: Awaited<ReturnType<typeof ingestBucketWindow>>): number {
   return results.reduce(
-    (n, r) => n + r.contracts + r.amendments + r.parties + r.awardSuppliers + r.lots,
+    (n, r) =>
+      n +
+      r.baseContracts +
+      r.baseTenders +
+      r.baseAmendments +
+      r.ocdsContracts +
+      r.ocdsAmendments +
+      r.parties +
+      r.awardSuppliers +
+      r.lots,
     0,
   );
 }
@@ -39,8 +48,7 @@ function stagedRows(results: Awaited<ReturnType<typeof ingestOcdsWindow>>): numb
 // The on-platform daily refresh reads storage.eop.bg buckets directly. It is intentionally a small
 // steady-state job: if D1 is many days behind, the Workflow caps to a recent window and logs a
 // warning; the large first-run/backfill catch-up is the CLI's job to avoid D1/CPU/subrequest limits.
-// Current Worker scope stages the in-bucket OCDS enrichment only. Plain base JSON staging remains on
-// the CLI until the load-eop coercion map is extracted into shared Worker-safe helpers.
+// The shared base and OCDS mappers keep the Worker refresh aligned with the CLI path.
 export class RefreshWorkflow extends WorkflowEntrypoint<Env, RefreshParams> {
   override async run(
     event: WorkflowEvent<RefreshParams>,
@@ -72,8 +80,8 @@ export class RefreshWorkflow extends WorkflowEntrypoint<Env, RefreshParams> {
       );
     }
 
-    const results = await step.do('ingest-storage-eop-ocds', async () =>
-      ingestOcdsWindow(this.env.DB, plan, {
+    const results = await step.do('ingest-storage-eop-bucket', async () =>
+      ingestBucketWindow(this.env.DB, plan, {
         baseUrl: this.env.EOP_OPEN_DATA_BASE_URL,
         fetchedAt,
       }),

@@ -2,12 +2,16 @@ import {
   classifyBucketKey,
   computeCatchupWindow,
   daysInWindow,
+  mapBaseRecord,
   releaseToAmendments,
   releaseToAwardSuppliers,
   releaseToContracts,
   releaseToLots,
   releaseToParties,
   upsertAmendmentStaging,
+  upsertBaseAmendmentStaging,
+  upsertBaseContractStaging,
+  upsertBaseTenderStaging,
   upsertAwardSupplierStaging,
   upsertContractStaging,
   upsertLotStaging,
@@ -51,14 +55,20 @@ export interface BucketListing {
 }
 
 export interface OcdsStageCounts {
-  contracts: number;
-  amendments: number;
+  ocdsContracts: number;
+  ocdsAmendments: number;
   parties: number;
   awardSuppliers: number;
   lots: number;
 }
 
-export interface DayIngestResult extends OcdsStageCounts {
+export interface BaseStageCounts {
+  baseContracts: number;
+  baseTenders: number;
+  baseAmendments: number;
+}
+
+export interface DayIngestResult extends OcdsStageCounts, BaseStageCounts {
   day: string;
   found: boolean;
 }
@@ -217,7 +227,7 @@ export async function stageOcdsFromBucket(
       upsertAwardSupplierStaging(db, source, []),
       upsertLotStaging(db, source, []),
     ]);
-    return { contracts: 0, amendments: 0, parties: 0, awardSuppliers: 0, lots: 0 };
+    return { ocdsContracts: 0, ocdsAmendments: 0, parties: 0, awardSuppliers: 0, lots: 0 };
   }
 
   const resourceUri = objectUrl(listing.bucketUrl, key);
@@ -245,15 +255,68 @@ export async function stageOcdsFromBucket(
   await upsertLotStaging(db, source, lots);
 
   return {
-    contracts: contracts.length,
-    amendments: amendments.length,
+    ocdsContracts: contracts.length,
+    ocdsAmendments: amendments.length,
     parties: parties.length,
     awardSuppliers: awardSuppliers.length,
     lots: lots.length,
   };
 }
 
-export async function ingestOcdsWindow(
+function jsonArray(value: unknown, label: string): Record<string, unknown>[] {
+  if (!Array.isArray(value)) throw new Error(`${label}: object JSON is not an array`);
+  return value as Record<string, unknown>[];
+}
+
+export async function stageBaseFromBucket(
+  db: D1Database,
+  listing: BucketListing,
+  fetchedAt: string,
+): Promise<BaseStageCounts> {
+  const counts: BaseStageCounts = { baseContracts: 0, baseTenders: 0, baseAmendments: 0 };
+
+  if (listing.keys.contracts) {
+    const rows = jsonArray(
+      await fetchJson(objectUrl(listing.bucketUrl, listing.keys.contracts)),
+      `contracts ${listing.day}`,
+    )
+      .map((record) => mapBaseRecord('contracts', record, { day: listing.day, fetchedAt }))
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+    counts.baseContracts = await upsertBaseContractStaging(
+      db,
+      `eop:contracts:${listing.day}`,
+      rows,
+    );
+  }
+
+  if (listing.keys.tenders) {
+    const rows = jsonArray(
+      await fetchJson(objectUrl(listing.bucketUrl, listing.keys.tenders)),
+      `tenders ${listing.day}`,
+    )
+      .map((record) => mapBaseRecord('tenders', record, { day: listing.day, fetchedAt }))
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+    counts.baseTenders = await upsertBaseTenderStaging(db, `eop:tenders:${listing.day}`, rows);
+  }
+
+  if (listing.keys.annexes) {
+    const rows = jsonArray(
+      await fetchJson(objectUrl(listing.bucketUrl, listing.keys.annexes)),
+      `annexes ${listing.day}`,
+    )
+      .map((record) => mapBaseRecord('annexes', record, { day: listing.day, fetchedAt }))
+      .filter((row): row is NonNullable<typeof row> => row !== null);
+    counts.baseAmendments = await upsertBaseAmendmentStaging(
+      db,
+      `eop:annexes:${listing.day}`,
+      rows,
+    );
+  }
+
+  return counts;
+}
+
+export async function ingestBucketWindow(
   db: D1Database,
   plan: Pick<CatchupPlan, 'from' | 'to'>,
   opts: { baseUrl?: string; fetchedAt?: string } = {},
@@ -266,8 +329,11 @@ export async function ingestOcdsWindow(
       out.push({
         day,
         found: false,
-        contracts: 0,
-        amendments: 0,
+        baseContracts: 0,
+        baseTenders: 0,
+        baseAmendments: 0,
+        ocdsContracts: 0,
+        ocdsAmendments: 0,
         parties: 0,
         awardSuppliers: 0,
         lots: 0,
@@ -275,10 +341,9 @@ export async function ingestOcdsWindow(
       continue;
     }
 
-    // The Worker currently stages only the in-bucket OCDS enrichment. The plain base JSON coercion
-    // remains in the CLI until that mapping is extracted into a shared package safe for Workers.
-    const counts = await stageOcdsFromBucket(db, listing, fetchedAt);
-    out.push({ day, found: true, ...counts });
+    const baseCounts = await stageBaseFromBucket(db, listing, fetchedAt);
+    const ocdsCounts = await stageOcdsFromBucket(db, listing, fetchedAt);
+    out.push({ day, found: true, ...baseCounts, ...ocdsCounts });
   }
   return out;
 }
