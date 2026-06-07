@@ -33,6 +33,13 @@
 
 -- Full clear in child→parent order (D1 enforces FKs). risk_scores is a dependent and is stale after
 -- a domain reload; it is recomputed by apps/etl after this runs.
+DELETE FROM search_index;
+DELETE FROM flow_pairs;
+DELETE FROM company_totals;
+DELETE FROM authority_totals;
+DELETE FROM sector_totals;
+DELETE FROM facet_counts;
+DELETE FROM home_totals;
 DELETE FROM bidder_members;
 DELETE FROM contracts;
 DELETE FROM risk_scores;
@@ -103,7 +110,8 @@ SELECT
   t.eauction,
   t.cancelled
 FROM raw_egov_tenders t
-WHERE t.lot_id IS NULL;
+WHERE t.lot_id IS NULL
+  AND EXISTS (SELECT 1 FROM authorities a WHERE a.id = 'auth:' || t.authority_eik);
 
 -- 2b) Synthetic tenders — УНП that appear only in contracts (no tenders-export row), so
 --     every contract has a parent. Procedure type is unknown ('неизвестна'); subject/CPV/
@@ -127,6 +135,7 @@ SELECT
 FROM raw_egov_contracts c
 WHERE c.unp IS NOT NULL
   AND NOT EXISTS (SELECT 1 FROM raw_egov_tenders t WHERE t.unp = c.unp)
+  AND EXISTS (SELECT 1 FROM authorities a WHERE a.id = 'auth:' || c.authority_eik)
 GROUP BY c.unp;
 
 -- 3) Lots — the lot rows of each procurement (lot_id IS NOT NULL), linked to their tender.
@@ -341,14 +350,53 @@ WHERE x.bidder_key IS NOT NULL
 UPDATE authorities SET
   nuts       = COALESCE(nuts,       (SELECT p.region_nuts    FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.region_nuts    IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
   settlement = COALESCE(settlement, (SELECT p.locality       FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.locality       IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
-  address    = COALESCE(address,    (SELECT p.street_address FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.street_address IS NOT NULL ORDER BY p.id DESC LIMIT 1))
+  address    = COALESCE(address,    (SELECT p.street_address FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.street_address IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
+  contact_email = COALESCE(contact_email, (SELECT p.contact_email FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.contact_email IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
+  contact_phone = COALESCE(contact_phone, (SELECT p.contact_phone FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat AND p.contact_phone IS NOT NULL ORDER BY p.id DESC LIMIT 1))
 WHERE EXISTS (SELECT 1 FROM raw_ocds_parties p WHERE p.eik = authorities.bulstat);
 
 UPDATE bidders SET
   nuts       = COALESCE(nuts,       (SELECT p.region_nuts    FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.region_nuts    IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
   settlement = COALESCE(settlement, (SELECT p.locality       FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.locality       IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
-  address    = COALESCE(address,    (SELECT p.street_address FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.street_address IS NOT NULL ORDER BY p.id DESC LIMIT 1))
+  address    = COALESCE(address,    (SELECT p.street_address FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.street_address IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
+  contact_email = COALESCE(contact_email, (SELECT p.contact_email FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.contact_email IS NOT NULL ORDER BY p.id DESC LIMIT 1)),
+  contact_phone = COALESCE(contact_phone, (SELECT p.contact_phone FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized AND p.contact_phone IS NOT NULL ORDER BY p.id DESC LIMIT 1))
 WHERE EXISTS (SELECT 1 FROM raw_ocds_parties p WHERE p.eik = bidders.eik_normalized);
+
+-- 6b) Per-lot value enrichment from OCDS. The bridge is OCDS tender.id -> EOP tenderId
+--     (raw_egov_tenders.tender_id) -> UNP -> domain lots. ocid is a surrogate and is never
+--     treated as the UNP.
+CREATE INDEX IF NOT EXISTS idx_egov_tenders_tender_id ON raw_egov_tenders(tender_id);
+WITH mapped AS (
+  SELECT
+    'lot:' || rt.unp || ':' || CASE
+      WHEN rl.lot_id LIKE 'LOT-%' AND REPLACE(rl.lot_id, 'LOT-', '') <> '' AND REPLACE(rl.lot_id, 'LOT-', '') NOT GLOB '*[^0-9]*' THEN CAST(REPLACE(rl.lot_id, 'LOT-', '') AS INTEGER)
+      WHEN rl.lot_id <> '' AND rl.lot_id NOT GLOB '*[^0-9]*' THEN CAST(rl.lot_id AS INTEGER)
+      ELSE rl.lot_id
+    END AS domain_lot_id,
+    rl.value_amount,
+    rl.value_currency,
+    ROW_NUMBER() OVER (
+      PARTITION BY 'lot:' || rt.unp || ':' || CASE
+        WHEN rl.lot_id LIKE 'LOT-%' AND REPLACE(rl.lot_id, 'LOT-', '') <> '' AND REPLACE(rl.lot_id, 'LOT-', '') NOT GLOB '*[^0-9]*' THEN CAST(REPLACE(rl.lot_id, 'LOT-', '') AS INTEGER)
+        WHEN rl.lot_id <> '' AND rl.lot_id NOT GLOB '*[^0-9]*' THEN CAST(rl.lot_id AS INTEGER)
+        ELSE rl.lot_id
+      END
+      ORDER BY rl.id DESC
+    ) AS rn
+  FROM raw_ocds_lots rl
+  JOIN raw_egov_tenders rt ON rt.tender_id = rl.tender_id
+  WHERE rl.tender_id IS NOT NULL
+    AND rl.lot_id IS NOT NULL
+    AND rt.unp IS NOT NULL
+)
+UPDATE lots
+SET
+  value_amount = COALESCE(lots.value_amount, mapped.value_amount),
+  value_currency = COALESCE(lots.value_currency, mapped.value_currency)
+FROM mapped
+WHERE mapped.rn = 1
+  AND mapped.domain_lot_id = lots.id;
 
 -- 7) Company master from the Trade Register (raw_tr_*, scripts/load-tr.mjs). Latest deed per ЕИК
 --    wins. Enriches bidders' seat/legal_form only; owner-table rebuilds are intentionally not done
