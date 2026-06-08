@@ -79,6 +79,25 @@ jobs:
             echo "ok=true" >> "$GITHUB_OUTPUT"
           fi
 
+      # Non-prod deploys must use distinct resource names. An unset name var renders the PRODUCTION
+      # default (so a misconfigured staging run would overwrite the live `sigma` worker) — fail loudly
+      # instead. Skipped for production, which is meant to use the committed defaults. See docs/deploy.md.
+      - name: Guard — non-prod must not reuse production resource names
+        if: needs.detect.outputs.env != 'production'
+        run: |
+          fail=0
+          check() {  # $1=value  $2=prod default  $3=var name
+            if [ -z "$1" ] || [ "$1" = "$2" ]; then
+              echo "::error::$3 must be a non-production value for env '${{ needs.detect.outputs.env }}' (got '${1:-<empty>}', prod default '$2') — set it as a GitHub Environment *variable*."
+              fail=1
+            fi
+          }
+          check "$SIGMA_WEB_NAME"      sigma          SIGMA_WEB_NAME
+          check "$SIGMA_ETL_NAME"      sigma-etl      SIGMA_ETL_NAME
+          check "$SIGMA_WORKFLOW_NAME" sigma-refresh  SIGMA_WORKFLOW_NAME
+          check "$SIGMA_D1_NAME"       sigma          SIGMA_D1_NAME
+          [ "$fail" = 0 ] || { echo "Refusing to deploy '${{ needs.detect.outputs.env }}' with production resource names."; exit 1; }
+
       - name: Typecheck
         if: steps.guard.outputs.ok == 'true'
         run: pnpm typecheck
