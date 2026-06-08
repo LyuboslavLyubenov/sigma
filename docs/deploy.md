@@ -14,15 +14,17 @@ deploys to any number of targets (production, staging, a second account) with no
 
 | | Production | Staging | Production-v2 (future) |
 |---|---|---|---|
-| Web worker | `sigma` → sigma.obecto.workers.dev | `sigma-stage` → sigma-stage.obecto.workers.dev | new name, 3rd URL |
+| Web worker → URL | `sigma` → **sigma.midt.bg** (Access-gated; workers.dev off) | `sigma-stage` → sigma-stage.obecto.workers.dev (Access-gated) | new name, 3rd URL |
 | ETL worker | `sigma-etl` (cron) | `sigma-etl-stage` (cron) | — |
 | Workflow (account-global) | `sigma-refresh` | `sigma-refresh-stage` | — |
 | D1 database | `sigma` | `sigma-stage` (**separate** DB) | own DB |
 | CF account | obecto | obecto (shared, for now) | **separate** account |
 | GitHub Environment | `production` | `staging` | `production` (repointed) |
 
-`workers.dev` hostnames follow the worker name automatically — naming the worker `sigma-stage` is
-all it takes to serve `sigma-stage.obecto.workers.dev`; no routes or custom domains to configure.
+Staging/dev rely on the automatic `workers.dev` hostname (naming the worker `sigma-stage` is all it
+takes to serve `sigma-stage.obecto.workers.dev` — no routes to configure). **Production**
+additionally gets the `sigma.midt.bg` custom domain and a Cloudflare Access gate before launch — see
+*Gate before launch* (§6) below.
 
 Each environment has its **own D1 database** (*same account ≠ same database*). Within an environment
 web + etl share one D1 so the explorer reads what the ETL writes; across environments they never
@@ -218,6 +220,62 @@ separate worker — it carries the cron trigger and the `RefreshWorkflow` class.
   `wrangler workflows trigger <name>`. The cron (`0 */6 * * *`) then refreshes unattended.
 - Confirm production is **untouched** when you deploy staging (different worker + D1 + lane).
 
+## 6. Gate before launch — Cloudflare Access (Zero Trust)
+
+Sigma is a public transparency portal, but both deployments are kept **private until release** behind
+**Cloudflare Access**. Production (`sigma.midt.bg`) is gated **pre-launch** and opened at go-live
+(no redeploy); staging stays gated permanently for the team.
+
+> **Decision: Access, not an in-worker password gate.** An earlier plan gated *inside* the worker (a
+> KV `published` flag + Basic Auth) because Access couldn't protect a `workers.dev` URL and v1 had no
+> custom domain. Both premises changed — production now uses the `sigma.midt.bg` custom domain, and
+> Cloudflare added one-click Access for `workers.dev` too. Access is the stronger choice: it runs at
+> the edge (before the worker *and* the cache), gives real identity / SSO / audit, and **covers
+> static assets** (no soft-vs-hard-gate tradeoff), with no application code. The in-worker gate is
+> retired.
+
+**Prerequisite.** `midt.bg` must be a Cloudflare **zone in the same account** as the `sigma` worker —
+Workers Custom Domains and self-hosted Access apps attach to a zone you control. If its DNS isn't on
+Cloudflare yet, add the domain and switch nameservers (or delegate `sigma.midt.bg`).
+
+**a. Put the worker on the hostname.** Workers & Pages → `sigma` → Settings → Domains & Routes →
+Add → **Custom Domain** → `sigma.midt.bg` (Cloudflare auto-creates the DNS record + TLS cert).
+Config equivalent: `"routes": [{ "pattern": "sigma.midt.bg", "custom_domain": true }]` — but attach
+it out-of-band for now so it doesn't also fire on the `sigma-stage` deploy (see the `workers_dev`
+note below).
+
+**b. Protect it with Access.** Zero Trust dashboard (`one.dash.cloudflare.com`, free up to 50 users)
+→ Access → Applications → **Add → Self-hosted**:
+- Application domain: subdomain `sigma`, domain `midt.bg` (path blank = whole site).
+- Policy → **Allow**, Include = your people: an *Emails* list, *Emails ending in* `@obecto.com`, or
+  an identity-provider group.
+- Login method: Cloudflare's built-in **One-time PIN** (emailed code) works with no IdP; add Google /
+  Microsoft Entra / GitHub under Settings → Authentication for SSO.
+
+**c. Close the bypass.** Disable `workers.dev` for the prod worker (**`workers_dev = false`**, or turn
+the route off in the dashboard) — otherwise `sigma.<sub>.workers.dev` stays a public backdoor around
+the gate. This is the step people forget.
+
+**Test.** `https://sigma.midt.bg` → redirected to the Access login → site; an off-list email is
+denied; the `workers.dev` URL no longer responds.
+
+**Go public at launch (no redeploy).** Delete the `sigma.midt.bg` Access application, or set its
+policy to **Bypass / Everyone**. Staging keeps its own app, so the team preview stays private; re-gate
+prod anytime by restoring the policy.
+
+**Staging gate.** Same idea — one-click *Enable Cloudflare Access* on `sigma-stage.<sub>.workers.dev`
+(Settings → Domains & Routes), or give staging `staging.sigma.midt.bg` + its own Access app.
+
+> **`workers_dev` is per-environment.** Prod wants `false` (gated custom domain); staging on
+> workers.dev wants `true`. So either give staging its own custom subdomain (both `false`, one
+> committed value) or make `workers_dev` an env-driven render value like the names — **don't** commit
+> a blanket `workers_dev: false`, or you'll knock staging's workers.dev URL offline.
+
+> **Bypass for automation / IaC.** If something must reach gated prod (uptime check, etc.), add a
+> **Service Token** policy or an IP bypass. The Access app + policy can also be managed as code
+> (Terraform `cloudflare_zero_trust_access_application` / `_policy`) instead of click-ops. The ETL
+> needs nothing here — `sigma-etl` is cron-only with no public surface.
+
 ## Isolation guarantees — why staging can't touch production
 
 Three independent walls; any one is sufficient:
@@ -278,3 +336,5 @@ the same way, and deploy. The env-var rendering already supports N targets.
 - **Cron freshness** depends on the `data.egov.bg` egress fix (BG proxy or EOP-repoint) — tracked
   separately from this deploy work.
 - Whether to add a **required-reviewers** gate on the `production` Environment.
+- **Access gate** (§6) is manual infra (zone + custom domain + Access app). Decide the `workers_dev`
+  wiring: give staging its own custom subdomain, or make `workers_dev` an env-driven render value.
