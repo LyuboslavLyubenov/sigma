@@ -52,6 +52,7 @@ const BASE_URL = (process.env.EOP_OPEN_DATA_BASE_URL || 'https://storage.eop.bg'
   /\/+$/,
   '',
 );
+const d1Name = process.env.SIGMA_D1_NAME || 'sigma';
 const CATEGORIES = ['contracts', 'tenders', 'annexes'];
 const RESOURCE_FILES = {
   contracts: 'contracts.json',
@@ -678,7 +679,7 @@ function applyChunkFiles(chunkFiles, remote) {
   const scope = remote ? '--remote' : '--local';
   for (const file of chunkFiles) {
     process.stderr.write(`==> applying ${file}\n`);
-    execFileSync('wrangler', ['d1', 'execute', 'sigma', scope, '--file', file], {
+    execFileSync('wrangler', ['d1', 'execute', d1Name, scope, '--file', file], {
       stdio: 'inherit',
       cwd: apiDir,
     });

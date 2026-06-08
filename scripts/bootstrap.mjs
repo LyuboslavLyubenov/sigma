@@ -4,10 +4,11 @@
 import { execFileSync } from 'node:child_process';
 
 const apply = process.argv.includes('--apply');
+const d1Name = process.env.SIGMA_D1_NAME || 'sigma';
 
 // Page caching is done via `Cache-Control` headers + the per-colo Cache API (no KV). Raw archival
 // is delegated to the external BG feeder (no R2). D1 is the only Cloudflare resource Sigma needs.
-const resources = [{ kind: 'D1', cmd: ['d1', 'create', 'sigma'] }];
+const resources = [{ kind: 'D1', cmd: ['d1', 'create', d1Name] }];
 
 console.log(apply ? '==> Creating Cloudflare resources' : '==> Dry run (pass --apply to create)');
 

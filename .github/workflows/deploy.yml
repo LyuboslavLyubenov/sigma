@@ -8,26 +8,54 @@ name: Deploy (web + etl → Cloudflare)
 # Triggered by a version TAG (cut a release), not by every push to main:
 #   git tag v1.0.0 && git push origin v1.0.0      # → deploys
 # Or run it by hand from the Actions tab (workflow_dispatch). (To deploy on GitHub *Releases*
-# instead, swap the trigger for `release: { types: [published] }`.)
+# instead, swap the tag trigger for `release: { types: [published] }`.)
 
 on:
   push:
     tags: ['v*']
   workflow_dispatch:
-
-concurrency:
-  group: deploy
-  cancel-in-progress: false
+    inputs:
+      environment:
+        description: Deploy target
+        type: choice
+        options:
+          - staging
+          - production
+        default: staging
 
 jobs:
-  deploy:
+  detect:
     runs-on: ubuntu-latest
+    outputs:
+      env: ${{ steps.pick.outputs.env }}
+    steps:
+      - id: pick
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "env=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
+          elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
+            echo "env=production" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=staging" >> "$GITHUB_OUTPUT"
+          fi
+
+  deploy:
+    needs: detect
+    runs-on: ubuntu-latest
+    environment: ${{ needs.detect.outputs.env }}
+    concurrency:
+      group: deploy-${{ needs.detect.outputs.env }}
+      cancel-in-progress: false
     env:
       CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
       CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
       # Real D1 database_id substituted into wrangler.deploy.* by scripts/wrangler-render.mjs
       # (committed wrangler.* hold a zero-UUID dummy). See docs/deploy.md.
       SIGMA_D1_ID: ${{ secrets.SIGMA_D1_ID }}
+      SIGMA_WEB_NAME: ${{ vars.SIGMA_WEB_NAME }}
+      SIGMA_ETL_NAME: ${{ vars.SIGMA_ETL_NAME }}
+      SIGMA_WORKFLOW_NAME: ${{ vars.SIGMA_WORKFLOW_NAME }}
+      SIGMA_D1_NAME: ${{ vars.SIGMA_D1_NAME }}
     steps:
       - uses: actions/checkout@v4
       - uses: pnpm/action-setup@v4

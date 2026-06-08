@@ -24,6 +24,7 @@ import { fileURLToPath } from 'node:url';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const apiDir = resolve(root, 'apps/api');
+const d1Name = process.env.SIGMA_D1_NAME || 'sigma';
 const YEARS = [2020, 2021, 2022, 2023, 2024, 2025, 2026];
 const MAX_BATCH_BYTES = 90_000;
 const MAX_BATCH_ROWS = 500;
@@ -469,7 +470,7 @@ async function loadCategory(cat, years, apply, remote) {
 
   if (apply) {
     const scope = remote ? '--remote' : '--local';
-    execFileSync('wrangler', ['d1', 'execute', 'sigma', scope, '--file', outFile], {
+    execFileSync('wrangler', ['d1', 'execute', d1Name, scope, '--file', outFile], {
       stdio: 'inherit',
       cwd: apiDir,
     });
@@ -485,7 +486,7 @@ async function main() {
 
   if (apply) {
     const scope = remote ? '--remote' : '--local';
-    execFileSync('wrangler', ['d1', 'migrations', 'apply', 'sigma', scope], {
+    execFileSync('wrangler', ['d1', 'migrations', 'apply', d1Name, scope], {
       stdio: 'inherit',
       cwd: apiDir,
     });

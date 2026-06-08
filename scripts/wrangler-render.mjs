@@ -4,13 +4,14 @@
 // vite cloudflare plugin parse cleanly and miniflare keys local state by stable values.
 // `wrangler deploy` needs the real IDs — this script substitutes them from env vars and
 // writes a sibling `wrangler.deploy.<ext>` that the package `deploy` script passes via
-// `--config`. Result: zero production identifiers in the repo, so the same source supports
-// another deploy in another Cloudflare account by setting different env vars.
+// `--config`. Optional deploy-time name env vars (`SIGMA_WEB_NAME`, `SIGMA_ETL_NAME`,
+// `SIGMA_WORKFLOW_NAME`, `SIGMA_D1_NAME`) explicitly override resource names for alternate
+// environments while leaving committed names unchanged when unset.
 //
 // usage: node scripts/wrangler-render.mjs <path/to/wrangler.toml|jsonc>
 
 import { readFileSync, writeFileSync } from 'node:fs';
-import { dirname, basename, join } from 'node:path';
+import { basename, dirname, extname, join } from 'node:path';
 
 // Sentinel <- env var. The sentinels appear verbatim in the committed wrangler.* files;
 // the values come from the environment at deploy time. Add a row to extend (e.g. a future KV).
@@ -43,6 +44,71 @@ if (missing.length) {
   process.exit(1);
 }
 
+const ext = extname(input);
+if (ext === '.json' || ext === '.jsonc') {
+  const names = {
+    webName: process.env.SIGMA_WEB_NAME || '',
+    d1Name: process.env.SIGMA_D1_NAME || '',
+  };
+  if (names.webName || names.d1Name) {
+    out = renderJson(out, names);
+  }
+} else if (ext === '.toml') {
+  const names = {
+    etlName: process.env.SIGMA_ETL_NAME || '',
+    workflowName: process.env.SIGMA_WORKFLOW_NAME || '',
+    d1Name: process.env.SIGMA_D1_NAME || '',
+  };
+  if (names.etlName || names.workflowName || names.d1Name) {
+    out = renderToml(out, names);
+  }
+}
+
 const outPath = join(dirname(input), basename(input).replace(/^wrangler\./, 'wrangler.deploy.'));
 writeFileSync(outPath, out);
 console.log(`wrangler-render: ${input} → ${outPath}`);
+
+function renderJson(text, names) {
+  const obj = JSON.parse(stripJsonLineComments(text));
+  if (names.webName) obj.name = names.webName;
+  if (names.d1Name && Array.isArray(obj.d1_databases)) {
+    for (const db of obj.d1_databases) {
+      if (db && typeof db === 'object') db.database_name = names.d1Name;
+    }
+  }
+  return `${JSON.stringify(obj, null, 2)}\n`;
+}
+
+function stripJsonLineComments(text) {
+  return text.replace(/^\s*\/\/.*$/gm, '');
+}
+
+function renderToml(text, names) {
+  let section = '';
+  return text
+    .split('\n')
+    .map((line) => {
+      const sectionMatch = line.match(/^\s*(\[\[?[^\]]+\]?\])\s*$/);
+      if (sectionMatch) section = sectionMatch[1];
+
+      if (section === '' && names.etlName) {
+        line = replaceTomlStringValue(line, 'name', names.etlName);
+      } else if (section === '[[workflows]]' && names.workflowName) {
+        line = replaceTomlStringValue(line, 'name', names.workflowName);
+      }
+      if (names.d1Name) line = replaceTomlStringValue(line, 'database_name', names.d1Name);
+      return line;
+    })
+    .join('\n');
+}
+
+function replaceTomlStringValue(line, key, value) {
+  return line.replace(
+    new RegExp(`^(\\s*${key}\\s*=\\s*")([^"]*)(".*)$`),
+    (_match, prefix, _current, suffix) => `${prefix}${escapeTomlBasicString(value)}${suffix}`,
+  );
+}
+
+function escapeTomlBasicString(value) {
+  return value.replace(/\\/g, '\\\\').replace(/"/g, '\\"');
+}

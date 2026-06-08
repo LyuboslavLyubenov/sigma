@@ -20,6 +20,7 @@ const catchup = process.argv.includes('--catchup');
 const planOnly = process.argv.includes('--plan-only') || process.argv.includes('--dry-run');
 const loc = remote ? '--remote' : '--local';
 const passthru = remote ? ['--remote'] : [];
+const d1Name = process.env.SIGMA_D1_NAME || 'sigma';
 
 function arg(name) {
   const hit = process.argv.find((a) => a === `--${name}` || a.startsWith(`--${name}=`));
@@ -49,12 +50,12 @@ function run(cmd, args, cwd = root) {
   console.log(`\n==> ${cmd} ${args.join(' ')}`);
   execFileSync(cmd, args, { stdio: 'inherit', cwd });
 }
-const execSql = (file) => run('wrangler', ['d1', 'execute', 'sigma', loc, '--file', file], apiDir);
+const execSql = (file) => run('wrangler', ['d1', 'execute', d1Name, loc, '--file', file], apiDir);
 
 function d1(sql) {
   const out = execFileSync(
     'wrangler',
-    ['d1', 'execute', 'sigma', loc, '--json', '--command', sql],
+    ['d1', 'execute', d1Name, loc, '--json', '--command', sql],
     {
       cwd: apiDir,
       encoding: 'utf8',
@@ -186,7 +187,7 @@ if (reset) {
 }
 
 console.log(`==> Sigma import (${remote ? 'REMOTE' : 'local'})`);
-run('wrangler', ['d1', 'migrations', 'apply', 'sigma', loc], apiDir);
+run('wrangler', ['d1', 'migrations', 'apply', d1Name, loc], apiDir);
 
 let deriveMode = String(arg('derive') || 'full');
 let loadFlags = explicitRangeFlags();

@@ -22,6 +22,7 @@ const apiDir = resolve(root, 'apps/api');
 const outFile = resolve(root, 'data/fx-load.sql');
 const apply = process.argv.includes('--apply');
 const remoteFlag = process.argv.includes('--remote') ? '--remote' : '--local';
+const d1Name = process.env.SIGMA_D1_NAME || 'sigma';
 const API = 'https://api.frankfurter.app';
 const FX_LOOKBACK_DAYS = 10;
 
@@ -36,7 +37,7 @@ const addDays = (iso, days) => {
 function d1(sql) {
   const out = execFileSync(
     'wrangler',
-    ['d1', 'execute', 'sigma', remoteFlag, '--json', '--command', sql],
+    ['d1', 'execute', d1Name, remoteFlag, '--json', '--command', sql],
     {
       cwd: apiDir,
       encoding: 'utf8',
@@ -124,7 +125,7 @@ writeFileSync(outFile, sql);
 console.log(`\nwrote ${rows.length} rates → ${outFile}`);
 
 if (apply) {
-  execFileSync('wrangler', ['d1', 'execute', 'sigma', remoteFlag, '--file', outFile], {
+  execFileSync('wrangler', ['d1', 'execute', d1Name, remoteFlag, '--file', outFile], {
     cwd: apiDir,
     stdio: 'inherit',
   });

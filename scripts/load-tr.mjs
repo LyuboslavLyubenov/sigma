@@ -22,6 +22,7 @@ import { XMLParser } from 'fast-xml-parser';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const apiDir = resolve(root, 'apps/api');
+const d1Name = process.env.SIGMA_D1_NAME || 'sigma';
 const cacheDir = resolve(root, 'data/tr');
 const API = 'https://data.egov.bg/api';
 const TR_DATASET = '2df0c2af-e769-4397-be33-fcbe269806f3';
@@ -218,11 +219,11 @@ async function main() {
     execFileSync('wrangler', a, { stdio: 'inherit', cwd: apiDir });
   };
   if (apply) {
-    runW(['d1', 'migrations', 'apply', 'sigma', scope]);
+    runW(['d1', 'migrations', 'apply', d1Name, scope]);
     // one-time clear of this source's staging (chunks below only INSERT, so they accumulate)
     const clear = resolve(root, 'data/tr-clear.sql');
     writeFileSync(clear, "DELETE FROM raw_tr_companies WHERE source LIKE 'tr:%';\n");
-    runW(['d1', 'execute', 'sigma', scope, '--file', clear]);
+    runW(['d1', 'execute', d1Name, scope, '--file', clear]);
   }
 
   // Keep everything as strings — coercion would strip leading zeros from ЕКАТТЕ / ЕИК / post codes.
@@ -282,7 +283,7 @@ async function main() {
     await once(cOut, 'finish');
   }
   if (apply)
-    for (const f of Object.values(files)) runW(['d1', 'execute', 'sigma', scope, '--file', f]);
+    for (const f of Object.values(files)) runW(['d1', 'execute', d1Name, scope, '--file', f]);
 
   process.stderr.write(
     `\n==> done: ${nDeeds.toLocaleString('en-US')} company rows from ${resources.length} files\n`,
