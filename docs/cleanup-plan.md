@@ -4,8 +4,10 @@
 obsolete loaders, admin/TR/consortium/award-supplier code are removed; the served D1 was relocated to
 `apps/web`. Each step gated: per-package typecheck + tests, and production-flow convergence `0/0` on
 all six tables after every SQL-touching change. The `§6` privatizations were applied conservatively
-(symbols imported by their own tests were left exported; the four genuinely-dead `@sigma/shared`
-utilities `ISODate`/`Brand`/`isDefined`/`assert` were left as-is pending a delete-vs-keep call).
+(symbols imported by their own tests were left exported). A whole-package audit of `@sigma/shared`
+(26 exports) found exactly four genuinely-dead ones — `ISODate`/`Brand`/`isDefined`/`assert` (their
+only apparent matches were false positives: Node's `assert`, the Workers `console.assert` global, and
+a "Brand favicons" comment) — and they were deleted. Everything else in `@sigma/shared` is live.
 
 **Scope rules (per decisions):**
 - `mocks/` and `docs/` are **left as-is** — out of scope for this cleanup.

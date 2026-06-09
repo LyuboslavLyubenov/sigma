@@ -1,10 +1,6 @@
 export * from './format';
 
-export type ISODate = string;
-
 export type RiskBand = 'low' | 'medium' | 'high' | 'critical';
-
-export type Brand<T, B extends string> = T & { readonly __brand: B };
 
 export function clamp(value: number, min: number, max: number): number {
   if (!Number.isFinite(value)) return min;
@@ -14,14 +10,6 @@ export function clamp(value: number, min: number, max: number): number {
 /** Float-scaling rounding; display/threshold-only and keeps the classic 1.005 edge. */
 export function round2(value: number): number {
   return Math.round(value * 100) / 100;
-}
-
-export function isDefined<T>(value: T | null | undefined): value is T {
-  return value !== null && value !== undefined;
-}
-
-export function assert(condition: unknown, message: string): asserts condition {
-  if (!condition) throw new Error(message);
 }
 
 const BANDS: ReadonlyArray<{ band: RiskBand; min: number }> = [
