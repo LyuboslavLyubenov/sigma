@@ -81,13 +81,6 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
   const busy = useNavigation().state !== 'idle';
 
   const groups: FilterGroup[] = [
-    {
-      key: 'year',
-      label: 'Година',
-      type: 'checkbox',
-      selected: getMulti(sp, 'year'),
-      options: facets.years.map((y) => ({ value: y.value, label: y.label, count: y.count })),
-    },
     buildSectorGroup(
       facets.sectors.map((s) => ({ value: s.value, label: s.label, count: s.count })),
       getMulti(sp, 'sector'),
@@ -98,6 +91,13 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
       type: 'checkbox',
       selected: getMulti(sp, 'procedure'),
       options: facets.procedures.map((p) => ({ value: p.value, label: p.label, count: p.count })),
+    },
+    {
+      key: 'year',
+      label: 'Година',
+      type: 'checkbox',
+      selected: getMulti(sp, 'year'),
+      options: facets.years.map((y) => ({ value: y.value, label: y.label, count: y.count })),
     },
     {
       key: 'value',
