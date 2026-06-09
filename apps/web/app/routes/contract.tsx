@@ -8,6 +8,7 @@ import { PageHeader } from '../components/PageHeader';
 import { FactsList } from '../components/FactsList';
 import { Chip, Flag, Section, SourceLine } from '../components/ui';
 import { publicCache } from '../lib/cache';
+import { eopSourceFiles } from '../lib/eopSource';
 
 /**
  * Compose the muted sub-line under „Брой оферти". The AOP feed gives us the gross submitted count
@@ -70,6 +71,9 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
   const c = loaderData.contract;
   const v = c.value;
   const crumbId = c.unp || c.contractNumber || c.id;
+  // Direct links to the day's raw ЦАИС ЕОП open-data files (storage.eop.bg) this record was
+  // published in — empty when there's no usable publication date.
+  const sourceFiles = eopSourceFiles(c.publishedAt);
   const betweenParties = `/contracts?authority=${c.authority.slug}&bidder=${c.bidder.slug}`;
 
   return (
@@ -98,7 +102,35 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
               <Link to={`/companies/${c.bidder.slug}`}>{c.bidder.displayName}</Link>.
             </>
           }
-        />
+        >
+          {c.documentNumber && (
+            // Deep-link to the procedure's page on the public ЦАИС ЕОП portal, where the official
+            // documents are published and downloadable. `documentNumber` is the EOP noticeId
+            // (packages/ingest/src/base.ts maps document_number ← noticeId). The portal is a
+            // client-rendered SPA, so this is a clickable deep link, not a scrapeable file list.
+            <a
+              className="source-cta"
+              href={`https://app.eop.bg/today/${c.documentNumber}`}
+              target="_blank"
+              rel="noopener"
+            >
+              <svg
+                width="16"
+                height="16"
+                viewBox="0 0 16 16"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="1.4"
+                aria-hidden="true"
+              >
+                <path d="M3.5 1.75H9l3.5 3.5v9h-9z" />
+                <path d="M9 1.75V5.25h3.5" />
+              </svg>
+              Виж документите в ЦАИС ЕОП
+              <span className="cta-ext" aria-hidden="true">↗</span>
+            </a>
+          )}
+        </PageHeader>
 
         <Section
           id="values"
@@ -415,6 +447,30 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
               <span className="sub">машиночетим, всички полета — /contracts/{c.id}.json</span>
             </li>
           </ul>
+
+          {sourceFiles.length > 0 && (
+            <>
+              <p className="small muted" style={{ margin: '0 0 8px' }}>
+                Първични данни от ЦАИС ЕОП (отворени данни) за деня на публикуване —{' '}
+                {longDate(c.publishedAt!)}. Свалят се директно от storage.eop.bg, без копие в СИГМА;
+                всеки файл съдържа пълните данни за деня. Записът на този договор е във файла
+                „Договори".
+              </p>
+              <ul className="linklist">
+                {sourceFiles.map((f) => (
+                  <li key={f.url}>
+                    {/* Plain <a> to the public MinIO object — external host, opens in a new tab.
+                        download is a hint only (ignored cross-origin), so large files open in-tab. */}
+                    <a href={f.url} target="_blank" rel="noopener" download>
+                      {f.label} — storage.eop.bg
+                    </a>
+                    <span className="sub">пълни данни за деня (JSON)</span>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+
           <SourceLine>
             Източник: Регистър на обществените поръчки (АОП / ЦАИС ЕОП). СИГМА не редактира
             съдържанието на договора и не интерпретира клаузите.

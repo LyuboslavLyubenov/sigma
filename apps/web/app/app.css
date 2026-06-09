@@ -614,6 +614,44 @@ main.narrow {
   font: 400 clamp(15px, 1.4vw, 17px)/1.55 var(--font-sans);
   color: var(--ink-mid);
 }
+/* Source CTA — solid, icon-led deep link to the procedure's documents on the public ЦАИС ЕОП
+   portal. Rendered as a child of the page header so it sits under the contract lede and is the
+   first action a reader sees. Solid ink → accent on hover, matching the site's button language. */
+.source-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-3);
+  margin-top: var(--s-6);
+  padding: 11px var(--s-5);
+  border: 1px solid var(--ink);
+  background: var(--ink);
+  color: var(--paper);
+  font: 500 12px/1 var(--font-mono);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  text-decoration: none;
+  transition:
+    background 0.15s ease,
+    border-color 0.15s ease;
+}
+/* Keep the label/icon legible once the link is visited — the global `a:visited { color: --ink }`
+   (specificity 0,1,1) would otherwise repaint the text ink-on-ink into an invisible black box. */
+.source-cta:visited {
+  color: var(--paper);
+}
+.source-cta:hover {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--paper);
+  text-decoration: none;
+}
+.source-cta svg {
+  flex: none;
+}
+.source-cta .cta-ext {
+  font-size: 13px;
+  opacity: 0.75;
+}
 
 /* Footer — minimal, single mono-caps line; collapse legacy 3-col gov footer */
 .site-footer {
