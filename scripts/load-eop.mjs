@@ -26,13 +26,11 @@ import {
 } from '../packages/ingest/src/base.ts';
 import {
   AMENDMENT_STAGING_COLS,
-  AWARD_SUPPLIER_STAGING_COLS,
   CONTRACT_STAGING_COLS,
   LOT_STAGING_COLS,
   PARTY_STAGING_COLS,
   classifyBucketKey,
   releaseToAmendments,
-  releaseToAwardSuppliers,
   releaseToContracts,
   releaseToLots,
   releaseToParties,
@@ -460,11 +458,6 @@ async function loadOcds(days, concurrency, failures, skips) {
     `INSERT INTO raw_ocds_parties (${PARTY_STAGING_COLS.join(', ')}) VALUES
 `,
   );
-  const sb = makeSqlBatcher(
-    out,
-    `INSERT INTO raw_ocds_award_suppliers (${AWARD_SUPPLIER_STAGING_COLS.join(', ')}) VALUES
-`,
-  );
   const lb = makeSqlBatcher(
     out,
     `INSERT INTO raw_ocds_lots (${LOT_STAGING_COLS.join(', ')}) VALUES
@@ -473,11 +466,10 @@ async function loadOcds(days, concurrency, failures, skips) {
   let contractRows = 0;
   let amendRows = 0;
   let partyRows = 0;
-  let supplierRows = 0;
   let lotRows = 0;
   let loadedObjects = 0;
   const flushAll = async () => {
-    await Promise.all([cb.flush(), ab.flush(), pb.flush(), sb.flush(), lb.flush()]);
+    await Promise.all([cb.flush(), ab.flush(), pb.flush(), lb.flush()]);
   };
   const writeOcdsWipes = async (source) => {
     await flushAll();
@@ -486,7 +478,6 @@ async function loadOcds(days, concurrency, failures, skips) {
       deleteSqlForSources('raw_egov_contracts', [source]) +
         deleteSqlForSources('raw_egov_amendments', [source]) +
         deleteSqlForSources('raw_ocds_parties', [source]) +
-        deleteSqlForSources('raw_ocds_award_suppliers', [source]) +
         deleteSqlForSources('raw_ocds_lots', [source]),
     );
   };
@@ -519,7 +510,6 @@ async function loadOcds(days, concurrency, failures, skips) {
       let cN = 0;
       let aN = 0;
       let pN = 0;
-      let sN = 0;
       let lN = 0;
       for (const rel of packageReleases(pkg)) {
         for (const row of releaseToContracts(rel, meta)) {
@@ -534,12 +524,6 @@ async function loadOcds(days, concurrency, failures, skips) {
           await pb.push(`(${PARTY_STAGING_COLS.map((c) => sqlLiteral(c, row[c])).join(',')})`);
           pN++;
         }
-        for (const row of releaseToAwardSuppliers(rel, meta)) {
-          await sb.push(
-            `(${AWARD_SUPPLIER_STAGING_COLS.map((c) => sqlLiteral(c, row[c])).join(',')})`,
-          );
-          sN++;
-        }
         for (const row of releaseToLots(rel, meta)) {
           await lb.push(`(${LOT_STAGING_COLS.map((c) => sqlLiteral(c, row[c])).join(',')})`);
           lN++;
@@ -548,11 +532,10 @@ async function loadOcds(days, concurrency, failures, skips) {
       contractRows += cN;
       amendRows += aN;
       partyRows += pN;
-      supplierRows += sN;
       lotRows += lN;
       process.stderr.write(
         `   ocds ${day}: ${cN.toLocaleString('en-US')} contracts, ${aN.toLocaleString('en-US')} amendments, ` +
-          `${pN.toLocaleString('en-US')} parties, ${sN.toLocaleString('en-US')} award-suppliers, ${lN.toLocaleString('en-US')} lots
+          `${pN.toLocaleString('en-US')} parties, ${lN.toLocaleString('en-US')} lots
 `,
       );
     }
@@ -562,12 +545,12 @@ async function loadOcds(days, concurrency, failures, skips) {
   await once(out, 'finish');
   process.stderr.write(
     `==> ocds: ${contractRows.toLocaleString('en-US')} contracts, ${amendRows.toLocaleString('en-US')} amendments, ` +
-      `${partyRows.toLocaleString('en-US')} parties, ${supplierRows.toLocaleString('en-US')} award-suppliers, ` +
-      `${lotRows.toLocaleString('en-US')} lots → ${file} (max stmt ${Math.max(cb.max(), ab.max(), pb.max(), sb.max(), lb.max())})
+      `${partyRows.toLocaleString('en-US')} parties, ` +
+      `${lotRows.toLocaleString('en-US')} lots → ${file} (max stmt ${Math.max(cb.max(), ab.max(), pb.max(), lb.max())})
 `,
   );
   return {
-    grand: contractRows + amendRows + partyRows + supplierRows + lotRows,
+    grand: contractRows + amendRows + partyRows + lotRows,
     loadedObjects,
     chunkFiles: [file],
   };

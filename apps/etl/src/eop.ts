@@ -4,7 +4,6 @@ import {
   daysInWindow,
   mapBaseRecord,
   releaseToAmendments,
-  releaseToAwardSuppliers,
   releaseToContracts,
   releaseToLots,
   releaseToParties,
@@ -12,7 +11,6 @@ import {
   upsertBaseAmendmentStaging,
   upsertBaseContractStaging,
   upsertBaseTenderStaging,
-  upsertAwardSupplierStaging,
   upsertContractStaging,
   upsertLotStaging,
   upsertPartyStaging,
@@ -52,7 +50,6 @@ export interface OcdsStageCounts {
   ocdsContracts: number;
   ocdsAmendments: number;
   parties: number;
-  awardSuppliers: number;
   lots: number;
 }
 
@@ -199,10 +196,9 @@ export async function stageOcdsFromBucket(
       upsertContractStaging(db, source, []),
       upsertAmendmentStaging(db, source, []),
       upsertPartyStaging(db, source, []),
-      upsertAwardSupplierStaging(db, source, []),
       upsertLotStaging(db, source, []),
     ]);
-    return { ocdsContracts: 0, ocdsAmendments: 0, parties: 0, awardSuppliers: 0, lots: 0 };
+    return { ocdsContracts: 0, ocdsAmendments: 0, parties: 0, lots: 0 };
   }
 
   const resourceUri = objectUrl(listing.bucketUrl, key);
@@ -220,20 +216,17 @@ export async function stageOcdsFromBucket(
   const contracts = releases.flatMap((rel) => releaseToContracts(rel, meta));
   const amendments = releases.flatMap((rel) => releaseToAmendments(rel, meta));
   const parties = releases.flatMap((rel) => releaseToParties(rel, meta));
-  const awardSuppliers = releases.flatMap((rel) => releaseToAwardSuppliers(rel, meta));
   const lots = releases.flatMap((rel) => releaseToLots(rel, meta));
 
   await upsertContractStaging(db, source, contracts);
   await upsertAmendmentStaging(db, source, amendments);
   await upsertPartyStaging(db, source, parties);
-  await upsertAwardSupplierStaging(db, source, awardSuppliers);
   await upsertLotStaging(db, source, lots);
 
   return {
     ocdsContracts: contracts.length,
     ocdsAmendments: amendments.length,
     parties: parties.length,
-    awardSuppliers: awardSuppliers.length,
     lots: lots.length,
   };
 }
@@ -310,7 +303,6 @@ export async function ingestBucketWindow(
         ocdsContracts: 0,
         ocdsAmendments: 0,
         parties: 0,
-        awardSuppliers: 0,
         lots: 0,
       });
       continue;

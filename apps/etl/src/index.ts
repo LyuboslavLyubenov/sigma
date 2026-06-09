@@ -40,7 +40,6 @@ function stagedRows(results: Awaited<ReturnType<typeof ingestBucketWindow>>): nu
       r.ocdsContracts +
       r.ocdsAmendments +
       r.parties +
-      r.awardSuppliers +
       r.lots,
     0,
   );

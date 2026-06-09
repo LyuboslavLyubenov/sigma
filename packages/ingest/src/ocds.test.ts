@@ -3,7 +3,6 @@ import {
   classifyBucketKey,
   computeCatchupWindow,
   releaseToAmendments,
-  releaseToAwardSuppliers,
   releaseToContracts,
   releaseToLots,
   releaseToParties,
@@ -245,11 +244,6 @@ describe('OCDS enrichment mappers', () => {
       region_nuts: 'BG411',
       contact_email: 'test@example.bg',
       contact_phone: '+359 2 000',
-    });
-    expect(releaseToAwardSuppliers(enriched, meta)[0]).toMatchObject({
-      award_id: 'A1',
-      supplier_count: 1,
-      supplier_eik: '200000007',
     });
     expect(releaseToLots(enriched, meta)[0]).toMatchObject({
       tender_id: 'TENDER-1',

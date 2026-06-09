@@ -179,18 +179,6 @@ export interface PartyStagingRow {
   contact_phone: string | null;
 }
 
-export interface AwardSupplierStagingRow {
-  source: string;
-  dataset_uri: string | null;
-  resource_uri: string | null;
-  fetched_at: string;
-  ocid: string | null;
-  award_id: string | null;
-  supplier_count: number | null;
-  supplier_eik: string | null;
-  supplier_name: string | null;
-}
-
 export interface LotStagingRow {
   source: string;
   dataset_uri: string | null;
@@ -362,32 +350,6 @@ export function releaseToParties(rel: OcdsRelease, meta: OcdsMeta): PartyStaging
   });
 }
 
-export function releaseToAwardSuppliers(
-  rel: OcdsRelease,
-  meta: OcdsMeta,
-): AwardSupplierStagingRow[] {
-  const party: Record<string, { eik: string | null; name: string | null }> = {};
-  for (const p of rel.parties ?? []) {
-    if (p.id) party[p.id] = { eik: p.identifier?.id ?? null, name: p.name ?? null };
-  }
-  const out: AwardSupplierStagingRow[] = [];
-  for (const aw of rel.awards ?? []) {
-    const sups = aw.suppliers ?? [];
-    for (const s of sups) {
-      const sp = s.id ? party[s.id] : null;
-      out.push({
-        ...metaBase(meta),
-        ocid: rel.ocid ?? null,
-        award_id: aw.id ?? null,
-        supplier_count: sups.length,
-        supplier_eik: sp?.eik ?? s.identifier?.id ?? null,
-        supplier_name: s.name || sp?.name || null,
-      });
-    }
-  }
-  return out;
-}
-
 export function releaseToLots(rel: OcdsRelease, meta: OcdsMeta): LotStagingRow[] {
   const t = rel.tender ?? {};
   return (t.lots ?? []).map((lot) => ({
@@ -520,18 +482,6 @@ export const PARTY_STAGING_COLS: (keyof PartyStagingRow)[] = [
   'contact_name',
   'contact_email',
   'contact_phone',
-];
-
-export const AWARD_SUPPLIER_STAGING_COLS: (keyof AwardSupplierStagingRow)[] = [
-  'source',
-  'dataset_uri',
-  'resource_uri',
-  'fetched_at',
-  'ocid',
-  'award_id',
-  'supplier_count',
-  'supplier_eik',
-  'supplier_name',
 ];
 
 export const LOT_STAGING_COLS: (keyof LotStagingRow)[] = [

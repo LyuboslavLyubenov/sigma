@@ -49,7 +49,6 @@ const TRANSIENT_STAGING_TABLES = [
   'raw_egov_tenders',
   'raw_egov_amendments',
   'raw_ocds_parties',
-  'raw_ocds_award_suppliers',
   'raw_ocds_lots',
 ] as const;
 

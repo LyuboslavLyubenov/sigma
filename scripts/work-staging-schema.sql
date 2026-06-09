@@ -223,22 +223,6 @@ CREATE TABLE raw_ocds_parties (
   contact_phone  TEXT
 );
 
--- OCDS award suppliers — every supplier on every award (supplier_count > 1 = joint venture /
--- consortium, the member breakdown OCDS exposes). Captured by scripts/load-eop.mjs. Source 'ocds:%'.
--- Staged but not yet consumed by normalize (wired-but-unused; see cleanup-plan.md section 7).
-CREATE TABLE raw_ocds_award_suppliers (
-  id             INTEGER PRIMARY KEY,
-  source         TEXT NOT NULL,
-  dataset_uri    TEXT,
-  resource_uri   TEXT,
-  fetched_at     TEXT NOT NULL,
-  ocid           TEXT,
-  award_id       TEXT,
-  supplier_count INTEGER,                   -- suppliers on this award (>1 = joint / consortium)
-  supplier_eik   TEXT,
-  supplier_name  TEXT
-);
-
 -- OCDS lots — per-lot values from the in-bucket release package. tender_id is the OCDS tender.id
 -- used to bridge to raw_egov_tenders.tender_id; ocid is provenance only, not a UNP.
 CREATE TABLE raw_ocds_lots (
@@ -269,8 +253,6 @@ CREATE INDEX idx_egov_amend_contract ON raw_egov_amendments(unp, contract_number
 CREATE INDEX idx_egov_amend_source ON raw_egov_amendments(source);
 CREATE INDEX idx_ocds_parties_eik ON raw_ocds_parties(eik);
 CREATE INDEX idx_ocds_parties_source ON raw_ocds_parties(source);
-CREATE INDEX idx_ocds_award_suppliers_eik ON raw_ocds_award_suppliers(supplier_eik);
-CREATE INDEX idx_ocds_award_suppliers_source ON raw_ocds_award_suppliers(source);
 CREATE INDEX idx_ocds_lots_source ON raw_ocds_lots(source);
 CREATE INDEX idx_ocds_lots_ocid_lot ON raw_ocds_lots(ocid, lot_id);
 CREATE INDEX idx_ocds_lots_tender_lot ON raw_ocds_lots(tender_id, lot_id);

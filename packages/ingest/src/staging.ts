@@ -6,12 +6,10 @@ import {
 } from './base';
 import {
   AMENDMENT_STAGING_COLS,
-  AWARD_SUPPLIER_STAGING_COLS,
   CONTRACT_STAGING_COLS,
   LOT_STAGING_COLS,
   PARTY_STAGING_COLS,
   type AmendmentStagingRow,
-  type AwardSupplierStagingRow,
   type ContractStagingRow,
   type LotStagingRow,
   type PartyStagingRow,
@@ -23,7 +21,6 @@ type StagingRow =
   | ContractStagingRow
   | AmendmentStagingRow
   | PartyStagingRow
-  | AwardSupplierStagingRow
   | LotStagingRow
   | BaseStagingRow;
 
@@ -76,20 +73,6 @@ export async function upsertPartyStaging(
   rows: PartyStagingRow[],
 ): Promise<number> {
   return upsertStagingRows(db, 'raw_ocds_parties', source, PARTY_STAGING_COLS, rows);
-}
-
-export async function upsertAwardSupplierStaging(
-  db: D1Database,
-  source: string,
-  rows: AwardSupplierStagingRow[],
-): Promise<number> {
-  return upsertStagingRows(
-    db,
-    'raw_ocds_award_suppliers',
-    source,
-    AWARD_SUPPLIER_STAGING_COLS,
-    rows,
-  );
 }
 
 export async function upsertLotStaging(
