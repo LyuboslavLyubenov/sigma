@@ -70,4 +70,35 @@ describe('getContractFacets', () => {
     expect(seenSql.some((sql) => sql.includes('JOIN tenders t ON t.id = c.tender_id'))).toBe(true);
     expect(facets.sectors.find((sector) => sector.value === '45')?.count).toBe(7);
   });
+
+  it('folds future signed-year buckets into unknown without hiding the rows', async () => {
+    const currentYear = new Date().getUTCFullYear();
+    const futureYear = String(currentYear + 3);
+    const db = {
+      prepare(sql: string) {
+        return {
+          async all<T>() {
+            if (sql.includes('facet_counts')) return { results: [] as T[] };
+            if (sql.includes('substr(t.cpv_code, 1, 2)')) return { results: [] as T[] };
+            return {
+              results: [
+                { key: String(currentYear), contracts: 4 },
+                { key: futureYear, contracts: 1 },
+                { key: 'unknown', contracts: 2 },
+              ] as T[],
+            };
+          },
+        };
+      },
+    } as D1Database;
+
+    const facets = await getContractFacets(db);
+
+    expect(facets.years.find((year) => year.value === String(currentYear))?.count).toBe(4);
+    expect(facets.years.find((year) => year.value === futureYear)).toBeUndefined();
+    expect(facets.years.find((year) => year.value === 'unknown')).toMatchObject({
+      label: 'Неизвестна',
+      count: 3,
+    });
+  });
 });

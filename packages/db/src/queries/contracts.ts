@@ -90,7 +90,10 @@ function buildFilters(p: ContractListParams): { sql: string; params: unknown[] }
       params.push(...realYears);
     }
     // `NOT (GLOB)` is NULL (falsy) for a NULL signed_at, so spell out the NULL case to match the facet.
-    if (wantUnknown) ors.push(`(c.signed_at IS NULL OR NOT (${YEAR_KNOWN}))`);
+    if (wantUnknown) {
+      ors.push(`(c.signed_at IS NULL OR NOT (${YEAR_KNOWN}) OR CAST(substr(c.signed_at, 1, 4) AS INTEGER) > ?)`);
+      params.push(new Date().getUTCFullYear());
+    }
     if (ors.length) where.push(ors.length > 1 ? `(${ors.join(' OR ')})` : ors.join(''));
   }
   if (p.sectors?.length) {
@@ -265,7 +268,15 @@ export async function getContractFacets(db: D1Database): Promise<ContractFacets>
     .all<{ key: string; contracts: number }>();
   const rows = facetRows.results;
 
-  const years = yearRows.results
+  const currentYear = new Date().getUTCFullYear();
+  const yearBuckets = new Map<string, number>();
+  for (const r of yearRows.results) {
+    const year = Number(r.key);
+    const key = r.key === YEAR_UNKNOWN || year > currentYear ? YEAR_UNKNOWN : r.key;
+    yearBuckets.set(key, (yearBuckets.get(key) ?? 0) + r.contracts);
+  }
+
+  const years = Array.from(yearBuckets, ([key, contracts]) => ({ key, contracts }))
     // Real years descend (newest first); the "Неизвестна" bucket sinks to the bottom of the list.
     .sort((a, b) =>
       a.key === YEAR_UNKNOWN ? 1 : b.key === YEAR_UNKNOWN ? -1 : b.key.localeCompare(a.key),
