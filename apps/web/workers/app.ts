@@ -1,5 +1,6 @@
 import { createRequestHandler } from 'react-router';
 import { baseSecurityHeaders, nonceLessSecurityHeaders } from '../app/lib/security';
+import { rateLimitCsvExport } from './csv-rate-limit';
 
 declare module 'react-router' {
   export interface AppLoadContext {
@@ -87,6 +88,9 @@ async function hardenResponse(response: Response, cacheable: boolean): Promise<R
 
 export default {
   async fetch(request, env, ctx) {
+    const csvRateLimitResponse = await rateLimitCsvExport(request, env, import.meta.env.PROD);
+    if (csvRateLimitResponse) return csvRateLimitResponse;
+
     // Per-colo edge cache (Cache API) for GET responses that opt in via Cache-Control: s-maxage=N
     // (publicCache() in apps/web/app/lib/cache.ts). Deterministic and independent of platform
     // HTML-cache heuristics on *.workers.dev; TTL is driven by s-maxage. The X-Edge-Cache:
