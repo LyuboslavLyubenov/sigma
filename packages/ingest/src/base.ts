@@ -38,6 +38,8 @@ export function clean(v: unknown): string | null {
 
 const MIN_DATA_YEAR = 1990;
 const MIN_DATA_DAY = `${MIN_DATA_YEAR}-01-01`;
+// Far above any real single BG procurement; only corrupt or misplaced-decimal values are dropped.
+export const MAX_PLAUSIBLE_VALUE = 10_000_000_000;
 
 function maxDataYear(): number {
   return new Date().getUTCFullYear() + 1;
@@ -89,7 +91,7 @@ export function toReal(v: unknown): number | null {
   if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');
   if (!/^\+?(?:\d+(?:\.\d+)?|\.\d+)$/.test(s)) return null;
   const n = Number(s);
-  return Number.isFinite(n) && n >= 0 ? n : null;
+  return Number.isFinite(n) && n >= 0 && n <= MAX_PLAUSIBLE_VALUE ? n : null;
 }
 
 export function toBool(v: unknown): number | null {

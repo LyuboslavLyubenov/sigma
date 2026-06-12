@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   BASE_CONTRACT_COLS,
+  MAX_PLAUSIBLE_VALUE,
   baseSqlLiteral,
   mapBaseRecord,
   toEventDate,
@@ -65,7 +66,9 @@ describe('base EOP mapper', () => {
     expect(toInt('12abc')).toBeNull();
     expect(toReal('-0.01')).toBeNull();
     expect(toReal('Infinity')).toBeNull();
+    expect(toReal(MAX_PLAUSIBLE_VALUE + 1)).toBeNull();
     expect(toReal('1 234,56')).toBe(1234.56);
+    expect(toReal(500000000)).toBe(500000000);
     expect(toISODate('1989-12-31')).toBeNull();
     expect(toISODate('2026-02-31')).toBeNull();
     expect(toISODate('not a date')).toBeNull();

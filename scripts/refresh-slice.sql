@@ -588,6 +588,7 @@ FROM (
         SELECT c.*,
           CASE
             WHEN c.estimated_value > 0 AND c.signing_value / c.estimated_value >= 100 THEN 'value_suspect'
+            WHEN (c.estimated_value IS NULL OR c.estimated_value = 0) AND COALESCE(c.current_value, c.signing_value) >= 10000000000 THEN 'value_suspect'
             WHEN c.current_value IS NOT NULL AND (c.current_value < 0 OR (c.signing_value > 0 AND c.current_value / c.signing_value >= 100)) THEN 'annex_suspect'
             WHEN c.estimated_value > 0 AND COALESCE(c.current_value, c.signing_value) / c.estimated_value >= 10 THEN 'review'
             ELSE 'ok'
@@ -752,6 +753,7 @@ FROM (
           END AS lot_norm,
           CASE
             WHEN c.estimated_value > 0 AND c.signing_value / c.estimated_value >= 100 THEN 'value_suspect'
+            WHEN (c.estimated_value IS NULL OR c.estimated_value = 0) AND COALESCE(c.current_value, c.signing_value) >= 10000000000 THEN 'value_suspect'
             WHEN c.current_value IS NOT NULL AND (c.current_value < 0 OR (c.signing_value > 0 AND c.current_value / c.signing_value >= 100)) THEN 'annex_suspect'
             WHEN c.estimated_value > 0 AND COALESCE(c.current_value, c.signing_value) / c.estimated_value >= 10 THEN 'review'
             ELSE 'ok'
