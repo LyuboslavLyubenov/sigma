@@ -1,5 +1,12 @@
 import { describe, expect, it } from 'vitest';
-import { distinctSearchTitleParts, search, searchMoreHref } from './search';
+import {
+  distinctSearchTitleParts,
+  MAX_QUERY_CHARS,
+  MAX_QUERY_TOKENS,
+  search,
+  searchMatchQuery,
+  searchMoreHref,
+} from './search';
 
 function searchDb(): D1Database {
   const companyRows = Array.from({ length: 6 }, (_, i) => ({
@@ -60,6 +67,21 @@ describe('search helpers', () => {
 
     expect(url.pathname).toBe('/companies');
     expect(url.searchParams.get('q')).toBe('строителство София');
+  });
+
+  it('caps over-long MATCH queries at the shared chokepoint', () => {
+    const q = Array.from({ length: 32 }, (_, i) => `word${i}`).join(' ');
+    expect(q.length).toBeGreaterThan(MAX_QUERY_CHARS);
+
+    const match = searchMatchQuery(q);
+    const terms = match?.split(' ') ?? [];
+
+    expect(terms.length).toBeLessThanOrEqual(MAX_QUERY_TOKENS);
+    expect(match?.length).toBeLessThanOrEqual(MAX_QUERY_CHARS + MAX_QUERY_TOKENS);
+  });
+
+  it('keeps normal short MATCH query behavior unchanged', () => {
+    expect(searchMatchQuery('Стрoителствo София 123')).toBe('строителство* софия* 123*');
   });
 });
 

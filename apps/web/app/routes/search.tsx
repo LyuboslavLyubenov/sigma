@@ -1,7 +1,7 @@
 import type { ReactNode } from 'react';
 import { Link } from 'react-router';
 import { count, money, plural } from '@sigma/shared';
-import { distinctSearchTitleParts, search } from '@sigma/db';
+import { distinctSearchTitleParts, MAX_QUERY_CHARS, MAX_QUERY_TOKENS, search } from '@sigma/db';
 import type { Route } from './+types/search';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { PageHeader } from '../components/PageHeader';
@@ -20,8 +20,6 @@ export function headers() {
   return { 'Cache-Control': publicCache(300) };
 }
 
-const MAX_QUERY_CHARS = 160;
-const MAX_QUERY_TOKENS = 8;
 const MAX_HIGHLIGHT_TOKENS = 8;
 const HOMOGLYPHS: Record<string, string> = {
   a: 'а',

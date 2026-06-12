@@ -8,6 +8,9 @@ import { hrefForEntity } from './identity';
 
 export type SearchKind = 'authority' | 'company' | 'contract';
 
+export const MAX_QUERY_CHARS = 160;
+export const MAX_QUERY_TOKENS = 8;
+
 const GROUPS: {
   kind: SearchKind;
   label: string;
@@ -72,9 +75,12 @@ function deHomoglyph(q: string): string {
  *  term like „ALSTOM" passes through untouched, otherwise its Latin a/o/t/m would be swapped to
  *  Cyrillic and the resulting mixed-script token would match nothing in the index. */
 export function searchMatchQuery(q: string): string | null {
-  const terms = q.toLowerCase().match(/[\p{L}\p{N}]+/gu);
+  const terms = q.slice(0, MAX_QUERY_CHARS).toLowerCase().match(/[\p{L}\p{N}]+/gu);
   if (!terms || terms.length === 0) return null;
-  return terms.map((t) => `${CYRILLIC.test(t) ? deHomoglyph(t) : t}*`).join(' ');
+  return terms
+    .slice(0, MAX_QUERY_TOKENS)
+    .map((t) => `${CYRILLIC.test(t) ? deHomoglyph(t) : t}*`)
+    .join(' ');
 }
 
 export function searchMoreHref(kind: SearchKind, query: string): string {
