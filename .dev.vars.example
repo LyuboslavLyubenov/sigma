@@ -1,22 +1,9 @@
 # Copied to .dev.vars by .devcontainer/post-create.sh - fill in before `pnpm dev`.
 # .dev.vars is gitignored. Never commit real secrets (see AGENTS.md).
 
-# Cloudflare AI Gateway (fronts assistant + analysis LLM calls)
-AI_GATEWAY_ACCOUNT_ID=
-AI_GATEWAY_NAME=sigma
-AI_GATEWAY_TOKEN=
-
-# Anthropic - AI Procurement Assistant
-ANTHROPIC_API_KEY=
-
-# National registry integrations - treat as PRODUCTION secrets (see AGENTS.md)
-NAP_API_TOKEN=
-TARGOVSKI_REGISTAR_API_TOKEN=
-AOP_API_TOKEN=
-
-# Public EOP open-data MinIO feed
+# Public EOP open-data MinIO feed.
+# Code defaults to https://storage.eop.bg (apps/etl, scripts/load-eop.mjs) - set only to override.
 # EOP_OPEN_DATA_BASE_URL=https://storage.eop.bg
-EOP_OPEN_DATA_BASE_URL=
 
-# Web worker privacy-preserving request log IP HMAC key
+# Web worker privacy-preserving request log IP HMAC key.
 LOG_IP_KEY=dev-only-log-ip-key-change-me
