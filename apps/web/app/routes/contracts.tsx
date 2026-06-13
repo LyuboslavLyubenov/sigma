@@ -79,7 +79,13 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
     prevCursor: result.prevCursor,
   });
   const csvHref = `/contracts.csv${withParams(sp, { cursor: null, page: null })}`;
-  const filtered = sp.get('authority') || sp.get('bidder');
+  const fAuthority = sp.get('authority');
+  const fBidder = sp.get('bidder');
+  const filtered = fAuthority || fBidder;
+  // A filtered view shares one authority/bidder across every row, so the name is taken from the
+  // first result (null when the filter combined with others yields no rows — then show the label only).
+  const filterAuthorityName = fAuthority ? (result.items[0]?.authorityName ?? null) : null;
+  const filterBidderName = fBidder ? (result.items[0]?.bidderDisplayName ?? null) : null;
   const busy = useNavigation().state !== 'idle';
 
   const groups: FilterGroup[] = [
@@ -160,7 +166,31 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
 
             {filtered && (
               <p className="active-filters">
-                Филтрирано по {sp.get('authority') ? 'институция' : 'компания'} ·{' '}
+                Филтрирано по{' '}
+                {fAuthority && (
+                  <>
+                    институция
+                    {filterAuthorityName ? (
+                      <>
+                        {' '}
+                        <strong>{filterAuthorityName}</strong>
+                      </>
+                    ) : null}
+                  </>
+                )}
+                {fAuthority && fBidder ? ' и ' : ''}
+                {fBidder && (
+                  <>
+                    компания
+                    {filterBidderName ? (
+                      <>
+                        {' '}
+                        <strong>{filterBidderName}</strong>
+                      </>
+                    ) : null}
+                  </>
+                )}{' '}
+                ·{' '}
                 <Link
                   to={withParams(sp, { authority: null, bidder: null, cursor: null, page: null })}
                 >
@@ -249,13 +279,9 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
               >
                 Какво е „договор“ в СИГМА
               </h2>
-              <p style={{ margin: '0 0 6px' }}>
+              <p style={{ margin: 0 }}>
                 Един възложен договор по обществена поръчка, на ниво обособена позиция (лот).
                 Стойностите са в евро — изчистена, съпоставима стойност на договора.
-              </p>
-              <p style={{ margin: 0 }}>
-                <strong>„Брой оферти"</strong> е колко предложения са получени по преписката; самите
-                оферти и техните стойности ги няма в АОП, затова тук няма изглед „по оферент".
               </p>
             </Callout>
           </section>
