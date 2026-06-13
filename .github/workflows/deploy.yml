@@ -5,13 +5,17 @@ name: Deploy (web + etl → Cloudflare)
 # (`sigma`) and the refresh Workflow (`sigma-etl`). The remote D1 must already be provisioned and its
 # real database_id set in the wrangler configs (see docs/deploy.md). Fails clearly without secrets.
 #
-# Triggered by a version TAG (cut a release), not by every push to main:
-#   git tag v1.0.0 && git push origin v1.0.0      # → deploys
-# Or run it by hand from the Actions tab (workflow_dispatch). (To deploy on GitHub *Releases*
-# instead, swap the tag trigger for `release: { types: [published] }`.)
+# Event → target mapping (see the `detect` job):
+#   - version TAG on the MAIN repo  → production   (cut a release: git tag v1.0.0 && git push origin v1.0.0)
+#   - push to `main` on the MIRROR  → staging       (continuous staging on midt-bg/sigma-stage)
+#   - workflow_dispatch             → the chosen environment (either repo)
+# Production stays tag-driven and only deploys from the main repo; a push to `main` on the main repo
+# deploys nothing, and the mirror never auto-targets real production. (To deploy on GitHub *Releases*
+# instead of tags, swap the tag trigger for `release: { types: [published] }`.)
 
 on:
   push:
+    branches: [main]
     tags: ['v*']
   workflow_dispatch:
     inputs:
@@ -30,17 +34,29 @@ jobs:
       env: ${{ steps.pick.outputs.env }}
     steps:
       - id: pick
+        # Map the git event to a deploy target. Empty ("") => no deploy: the deploy job is skipped.
+        #   workflow_dispatch              -> the chosen environment (either repo)
+        #   tag v* on the main repo        -> production   (the midt-bg mirror must never auto-target prod)
+        #   push to main on the mirror     -> staging      (continuous staging)
+        #   push to main on the main repo  -> nothing      (production stays tag-driven)
         run: |
           if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
             echo "env=${{ inputs.environment }}" >> "$GITHUB_OUTPUT"
           elif [[ "${{ github.ref }}" == refs/tags/v* ]]; then
-            echo "env=production" >> "$GITHUB_OUTPUT"
-          else
+            if [ "${{ github.repository }}" = "midt-bg/sigma-stage" ]; then
+              echo "env=" >> "$GITHUB_OUTPUT"
+            else
+              echo "env=production" >> "$GITHUB_OUTPUT"
+            fi
+          elif [ "${{ github.ref }}" = "refs/heads/main" ] && [ "${{ github.repository }}" = "midt-bg/sigma-stage" ]; then
             echo "env=staging" >> "$GITHUB_OUTPUT"
+          else
+            echo "env=" >> "$GITHUB_OUTPUT"
           fi
 
   deploy:
     needs: detect
+    if: needs.detect.outputs.env != ''
     runs-on: ubuntu-latest
     environment: ${{ needs.detect.outputs.env }}
     concurrency:
