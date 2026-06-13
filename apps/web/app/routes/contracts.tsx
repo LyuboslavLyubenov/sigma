@@ -52,6 +52,7 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     authority: sp.get('authority'),
     bidder: sp.get('bidder'),
     q: sp.get('q'),
+    bids: (sp.get('bids') === '1' ? 'one' : null) as 'one' | null,
     cursor: sp.get('cursor'),
     pageSize: PAGE_SIZE.contracts,
   };

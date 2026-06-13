@@ -5,6 +5,7 @@ import {
   type AuthorityTotalsRow,
   type CompanyTotalsRow,
 } from './rows';
+import { listSingleOfferContracts } from './contracts';
 
 interface HomeTotalsRow {
   contracts: number;
@@ -49,7 +50,8 @@ export async function getHomeData(db: D1Database): Promise<HomeData> {
       };
 
   const placeholders = STATE_TYPES.map(() => '?').join(', ');
-  const [companies, ministries, municipalities] = await Promise.all([
+  const [companies, ministries, municipalities, recentSingleOffer, topSingleOffer] =
+    await Promise.all([
     db
       .prepare(`SELECT * FROM company_totals ORDER BY won_eur DESC, bidder_id LIMIT 10`)
       .all<CompanyTotalsRow>(),
@@ -64,6 +66,8 @@ export async function getHomeData(db: D1Database): Promise<HomeData> {
         `SELECT * FROM authority_totals WHERE type_group = 'община' ORDER BY spent_eur DESC, authority_id LIMIT 6`,
       )
       .all<AuthorityTotalsRow>(),
+    listSingleOfferContracts(db, 'recent', 10),
+    listSingleOfferContracts(db, 'value', 10),
   ]);
 
   return {
@@ -71,5 +75,7 @@ export async function getHomeData(db: D1Database): Promise<HomeData> {
     topCompanies: companies.results.map(toCompanyListItem),
     topMinistries: ministries.results.map(toAuthorityListItem),
     topMunicipalities: municipalities.results.map(toAuthorityListItem),
+    recentSingleOffer,
+    topSingleOffer,
   };
 }

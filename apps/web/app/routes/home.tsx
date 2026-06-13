@@ -1,6 +1,7 @@
 import { Link } from 'react-router';
 import { count, date, money } from '@sigma/shared';
 import { getHomeData } from '@sigma/db';
+import type { ContractListItem } from '@sigma/api-contract';
 import type { Route } from './+types/home';
 import { PageHeader } from '../components/PageHeader';
 import { TotalsStrip } from '../components/TotalsStrip';
@@ -30,8 +31,54 @@ export async function loader({ context }: Route.LoaderArgs) {
   return getHomeData(env.DB);
 }
 
+function SingleOfferTable({ items, allHref }: { items: ContractListItem[]; allHref: string }) {
+  if (items.length === 0) return <p className="small muted">Няма данни за този изглед.</p>;
+  return (
+    <>
+      <div className="table-wrap tbl-cards">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Дата</th>
+              <th scope="col">Договор</th>
+              <th scope="col">Възложител · Изпълнител</th>
+              <th scope="col" className="num">
+                Стойност
+              </th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map((c) => (
+              <tr key={c.id}>
+                <td className="nowrap" data-label="Дата">
+                  {date(c.signedAt)}
+                </td>
+                <td className="cell-title" data-label="Договор">
+                  <Link to={`/contracts/${c.id}`}>{c.subject}</Link>
+                </td>
+                <td data-label="Възложител · Изпълнител">
+                  <Link to={`/authorities/${c.authoritySlug}`}>{c.authorityName}</Link>
+                  {' · '}
+                  <Link to={`/companies/${c.bidderSlug}`}>{c.bidderDisplayName}</Link>
+                </td>
+                <td className="money" data-label="Стойност">
+                  {c.valueEur != null ? money(c.valueEur) : '—'}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <p className="small muted" style={{ marginTop: 8 }}>
+        <Link to={allHref}>Виж всички →</Link>
+      </p>
+    </>
+  );
+}
+
 export default function Home({ loaderData }: Route.ComponentProps) {
-  const { totals, topCompanies, topMinistries, topMunicipalities } = loaderData;
+  const { totals, topCompanies, topMinistries, topMunicipalities, recentSingleOffer, topSingleOffer } =
+    loaderData;
   const endYear = coverageEndYear(totals.asOf);
   const range = coverageRange(endYear);
   return (
@@ -154,6 +201,30 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               ))}
             </tbody>
           </table>
+        </div>
+      </section>
+
+      <section className="section" aria-labelledby="single-offer">
+        <h2 id="single-offer">
+          Поръчки с <em>една оферта</em>
+        </h2>
+        <p className="section-hint">
+          Една оферта означава липса на ценова конкуренция. Ето поръчките с един участник —
+          подредени по време или по стойност.
+        </p>
+        <div className="tabset">
+          <input type="radio" name="single-offer" id="so-recent" className="tab-input" defaultChecked />
+          <input type="radio" name="single-offer" id="so-top" className="tab-input" />
+          <div className="tab-labels">
+            <label htmlFor="so-recent">Скорошни</label>
+            <label htmlFor="so-top">Най-големи по стойност</label>
+          </div>
+          <div className="tab-panel" data-tab="recent">
+            <SingleOfferTable items={recentSingleOffer} allHref="/contracts?bids=1&sort=date-desc" />
+          </div>
+          <div className="tab-panel" data-tab="top">
+            <SingleOfferTable items={topSingleOffer} allHref="/contracts?bids=1&sort=value-desc" />
+          </div>
         </div>
       </section>
 

@@ -57,6 +57,9 @@ export interface HomeData {
   topCompanies: CompanyListItem[];
   topMinistries: AuthorityListItem[];
   topMunicipalities: AuthorityListItem[];
+  /** Single-offer (bids_received = 1) contracts for the homepage section. */
+  recentSingleOffer: ContractListItem[];
+  topSingleOffer: ContractListItem[];
 }
 
 // ── Companies ─────────────────────────────────────────────────────────────────────────────────

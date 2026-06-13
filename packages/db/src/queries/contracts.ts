@@ -22,6 +22,7 @@ export interface ContractListParams {
   authority?: string | null; // authority ЕИК (slug)
   bidder?: string | null; // bidder slug
   q?: string | null;
+  bids?: 'one' | null;
   cursor?: string | null;
   pageSize?: number;
 }
@@ -35,6 +36,7 @@ export const CONTRACT_FILTER_KEYS = [
   'authority',
   'bidder',
   'q',
+  'bids',
 ] as const satisfies readonly (keyof ContractListParams)[];
 
 const SORTS: Record<ContractSort, { expr: string; dir: 'asc' | 'desc' }> = lookup({
@@ -133,6 +135,7 @@ function buildFilters(p: ContractListParams): { sql: string; params: unknown[] }
   }
   if (p.eu === 'eu') where.push(`c.eu_funded = 1`);
   else if (p.eu === 'national') where.push(`(c.eu_funded IS NULL OR c.eu_funded = 0)`);
+  if (p.bids === 'one') where.push(`c.bids_received = 1`);
   if (p.authority) {
     where.push(`t.authority_id = ?`);
     params.push('auth:' + p.authority);
@@ -167,6 +170,7 @@ function contractFilterSignature(p: ContractListParams): string {
     authority: p.authority,
     bidder,
     q: searchMatchQuery(p.q ?? ''),
+    bids: p.bids ?? null,
   } satisfies Record<(typeof CONTRACT_FILTER_KEYS)[number], unknown>;
   return filterSignature(filters);
 }
@@ -192,6 +196,28 @@ function toItem(r: ContractRow): ContractListItem {
     bidsReceived: r.bids_received,
     valueEur: r.amount_eur,
   };
+}
+
+/**
+ * Single-offer contracts (`bids_received = 1`) excluding suspect values — for the homepage section.
+ * `mode` picks recency vs highest value. Reuses the shared SELECT/FROM and the row mapper.
+ */
+export async function listSingleOfferContracts(
+  db: D1Database,
+  mode: 'recent' | 'value',
+  limit = 10,
+): Promise<ContractListItem[]> {
+  const order =
+    mode === 'value'
+      ? 'ORDER BY c.amount_eur DESC'
+      : 'ORDER BY COALESCE(c.signed_at, c.published_at) DESC';
+  const rows = await db
+    .prepare(
+      `${SELECT} ${FROM} WHERE c.bids_received = 1 AND c.value_flag = 'ok' AND c.amount_eur > 0 ${order}, c.id LIMIT ?`,
+    )
+    .bind(limit)
+    .all<ContractRow>();
+  return rows.results.map(toItem);
 }
 
 export interface ContractListResult extends Page<ContractListItem> {

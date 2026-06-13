@@ -2261,6 +2261,46 @@ details.row .body .signal .why {
   white-space: nowrap;
 }
 
+/* CSS-only tabset (homepage single-offer: Скорошни / Най-големи по стойност). No JS. */
+.tabset .tab-input {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  opacity: 0;
+  pointer-events: none;
+}
+.tab-labels {
+  display: flex;
+  gap: var(--s-4);
+  border-bottom: 1px solid var(--rule);
+  margin: var(--s-2) 0 var(--s-3);
+}
+.tab-labels label {
+  cursor: pointer;
+  padding: var(--s-2) 0;
+  margin-bottom: -1px;
+  border-bottom: 2px solid transparent;
+  color: var(--ink-soft);
+  font: 600 14px/1.2 var(--font-sans);
+}
+.tabset .tab-panel {
+  display: none;
+}
+#so-recent:checked ~ .tab-labels label[for='so-recent'],
+#so-top:checked ~ .tab-labels label[for='so-top'] {
+  color: var(--ink);
+  border-bottom-color: var(--accent);
+}
+#so-recent:checked ~ .tab-panel[data-tab='recent'],
+#so-top:checked ~ .tab-panel[data-tab='top'] {
+  display: block;
+}
+#so-recent:focus-visible ~ .tab-labels label[for='so-recent'],
+#so-top:focus-visible ~ .tab-labels label[for='so-top'] {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
 .muni-grid {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
