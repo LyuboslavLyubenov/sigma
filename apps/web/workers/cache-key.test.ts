@@ -43,4 +43,24 @@ describe('cacheKey', () => {
     expect(first.search).toBe('?eu=eu&type=municipality&year=2024&_dt=deploy-test');
     expect(second.search).toBe(first.search);
   });
+
+  it('canonicalizes percent-encoded path variants', () => {
+    const encoded = cacheUrl('http://local/contracts/e%3AUNP-1%3ACONTRACT-1');
+    const decoded = cacheUrl('http://local/contracts/e:UNP-1:CONTRACT-1');
+
+    expect(encoded.toString()).toBe(decoded.toString());
+    expect(encoded.pathname).toBe('/contracts/e:UNP-1:CONTRACT-1');
+  });
+
+  it('keeps genuinely distinct paths distinct', () => {
+    const first = cacheUrl('http://local/contracts/e:UNP-1:CONTRACT-1');
+    const second = cacheUrl('http://local/contracts/e:UNP-1:CONTRACT-2');
+
+    expect(first.toString()).not.toBe(second.toString());
+  });
+
+  it('falls back to the raw pathname for malformed percent-encoding', () => {
+    expect(() => cacheUrl('http://local/contracts/%')).not.toThrow();
+    expect(cacheUrl('http://local/contracts/%').pathname).toBe('/contracts/%');
+  });
 });
