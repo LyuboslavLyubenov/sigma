@@ -23,7 +23,7 @@ export function ContractMiniTable({
             <th scope="col">Предмет</th>
             <th scope="col">{colLabel}</th>
             <th scope="col">Процедура</th>
-            <th scope="col" className="num">
+            <th scope="col" className="num-left">
               Оферти
             </th>
             <th scope="col" className="num">
@@ -52,7 +52,7 @@ export function ContractMiniTable({
               <td data-label="Процедура">
                 <Chip>{c.procedureLabel}</Chip>
               </td>
-              <td className="money" data-label="Оферти">
+              <td className="num-left" data-label="Оферти">
                 {c.bidsReceived != null ? count(c.bidsReceived) : '—'}
               </td>
               <td className="money" data-label="Стойност">

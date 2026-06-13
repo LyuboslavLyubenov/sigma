@@ -892,6 +892,13 @@ tbody td.num {
   white-space: nowrap;
   font-variant-numeric: tabular-nums;
 }
+/* Left-aligned plain count (e.g. offers count) — distinct from the right-aligned .money value column */
+thead th.num-left,
+tbody td.num-left {
+  text-align: left;
+  white-space: nowrap;
+  font-variant-numeric: tabular-nums;
+}
 thead th.center,
 tbody td.center {
   text-align: center;
