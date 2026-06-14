@@ -605,8 +605,13 @@ main.narrow {
 .page-header h1 {
   margin: 0;
   max-width: 22ch;
+  /* Prefer soft hyphenation for long single words (e.g. „ИНФРАСТРУКТУРА") so a
+     heading that outgrows a narrow screen breaks at a syllable with a hyphen
+     rather than mid-word. `overflow-wrap: anywhere` stays as the fallback when
+     no hyphenation point fits; `word-break: break-word` is dropped because it
+     breaks anywhere with no hyphen. */
   overflow-wrap: anywhere;
-  word-break: break-word;
+  hyphens: auto;
 }
 /* Length-aware title sizing. Short subjects keep the full editorial serif (the base rule above);
    longer procurement subjects step down in size and widen the measure so they don't tower. The
@@ -1338,12 +1343,30 @@ a.flag:hover {
 /* Two-card layout */
 .two-col {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  /* minmax(0, …) caps each track's minimum at 0; a bare `1fr` minimum is `auto`
+     (= min-content), which lets a nowrap child (e.g. a long ranked-bar authority
+     name) blow the track past the viewport and force a horizontal scroll on
+     narrow screens. minmax(0, …) lets the child's own ellipsis do its job. */
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
   gap: var(--s-7);
 }
 @media (max-width: 760px) {
   .two-col {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+/* The third-party accessibility launcher (.a11y-tools, loaded async from
+   /assets/accessibility/) pins its 50px button at `top: 420px` inside a
+   viewport-tall fixed container, so on phones it floats over the middle-right of
+   the card lists and covers the right-aligned values. Pin it to the bottom-right
+   corner on narrow screens so it clears the content; the fly-out menu still
+   anchors to the same container. `!important` beats the async widget stylesheet
+   regardless of load order. */
+@media (max-width: 760px) {
+  .a11y-tools__button {
+    top: auto !important;
+    bottom: 0 !important;
   }
 }
 
@@ -1928,7 +1951,10 @@ details.row .body .signal .why {
   padding: 0 0 4px 0;
   outline: none;
   width: 100%;
-  margin-left: var(--s-2);
+  /* No `margin-left` here: `width: 100%` already fills the grid column, so a left
+     margin pushes the field (and its underline) past the column's right edge —
+     ~8px beyond the full-width „Намери" button below it on mobile. The chevron→
+     field spacing is provided by the grid `column-gap`. */
 }
 .hero-search input::placeholder {
   color: var(--ink-soft);
