@@ -7,6 +7,7 @@ import { decodeCursor, encodeCursor, filterSignature, keyset, pageCursors } from
 const FILTER_VALUE: Record<string, unknown> = {
   authority: '000695089',
   bidder: '103267194',
+  bids: 'one',
   countBucket: '2-5',
   eu: 'eu',
   kinds: ['company'],
@@ -69,6 +70,7 @@ describe('route filter signatures', () => {
       'authority',
       'bidder',
       'q',
+      'bids',
     ]);
     expect([...COMPANY_FILTER_KEYS]).toEqual([
       'kinds',
