@@ -10,14 +10,21 @@ import { OwnershipChip } from '../components/ui';
 import { publicCache } from '../lib/cache';
 import { coverageEndYear, coveragePartialNote, coverageRange } from '../lib/coverage';
 
-export function meta(_: Route.MetaArgs) {
+const metaTitle = 'СИГМА — Платформа за прозрачност на обществените поръчки';
+const metaDescription =
+  'СИГМА показва как държавните институции и общините харчат парите на данъкоплатците чрез обществени поръчки във всички сектори. Без регистрация. Зад всяко число стои конкретен договор.';
+
+export function meta({ matches }: Route.MetaArgs) {
+  const rootData = matches.find((match) => match?.id === 'root')?.data as { origin: string };
+  const origin = rootData.origin;
   return [
-    { title: 'СИГМА — Платформа за прозрачност на обществените поръчки' },
-    {
-      name: 'description',
-      content:
-        'Кой какво купува от държавата и общините и на кого плаща — във всички сектори на обществените поръчки. Без регистрация. Зад всяко число стои конкретен договор.',
-    },
+    { title: metaTitle },
+    { name: 'description', content: metaDescription },
+    { property: 'og:title', content: metaTitle },
+    { property: 'og:description', content: metaDescription },
+    { property: 'og:url', content: `${origin}/` },
+    { name: 'twitter:title', content: metaTitle },
+    { name: 'twitter:description', content: metaDescription },
   ];
 }
 
@@ -98,7 +105,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
               Къде отиват <em>парите</em> на държавата?
             </>
           }
-          lede="СИГМА показва кой какво купува от държавата и общините и на кого плаща — във всички сектори на обществените поръчки. Без регистрация, без тълкуване. Зад всяко число стои конкретен договор — можеш да го отвориш."
+          lede="СИГМА показва как държавните институции и общините харчат парите на данъкоплатците чрез обществени поръчки във всички сектори. Без регистрация, без тълкуване. Зад всяко число стои конкретен договор — можеш да го отвориш."
         >
           <form className="hero-search" role="search" action="/search">
             <input

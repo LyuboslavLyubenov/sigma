@@ -11,6 +11,7 @@ import {
   useLocation,
   useNavigation,
   useNavigationType,
+  useRouteLoaderData,
 } from 'react-router';
 
 import type { Route } from './+types/root';
@@ -40,16 +41,32 @@ export async function loader({ context, request }: Route.LoaderArgs) {
   if (url.pathname.length > 1 && url.pathname.endsWith('/')) {
     throw redirect(url.pathname.replace(/\/+$/, '') + url.search, 301);
   }
-  return getCoverageMeta(context.cloudflare.env.DB);
+  const coverage = await getCoverageMeta(context.cloudflare.env.DB);
+  return { ...coverage, origin: url.origin };
 }
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const nonce = useNonce();
+  const rootData = useRouteLoaderData('root') as { origin?: string } | undefined;
+  const imageUrl = rootData?.origin ? `${rootData.origin}/og.png` : undefined;
   return (
     <html lang="bg">
       <head>
         <meta charSet="utf-8" />
         <meta name="viewport" content="width=device-width, initial-scale=1" />
+        <meta property="og:type" content="website" />
+        <meta property="og:site_name" content="СИГМА" />
+        <meta property="og:locale" content="bg_BG" />
+        {imageUrl && <meta property="og:image" content={imageUrl} />}
+        <meta property="og:image:width" content="1200" />
+        <meta property="og:image:height" content="630" />
+        <meta
+          property="og:image:alt"
+          content="СИГМА — платформа за прозрачност на обществените поръчки"
+        />
+        <meta property="og:image:type" content="image/png" />
+        <meta name="twitter:card" content="summary_large_image" />
+        {imageUrl && <meta name="twitter:image" content={imageUrl} />}
         <Meta />
         <Links />
         <script src="/assets/accessibility/accessibility.js" defer />
