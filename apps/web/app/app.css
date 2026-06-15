@@ -2262,11 +2262,15 @@ details.row .body .signal .why {
   top: 3px;
   bottom: 3px;
   background: var(--paper-deep);
-  border-radius: 3px;
+  /* Darker, slightly thicker baseline = the "subbar": its length is the value cue. Square the
+     bottom corners so the rule ends crisply; round only the top of the soft fill. */
+  border-bottom: 2px solid var(--rule);
+  border-radius: 3px 3px 0 0;
   z-index: 0;
 }
 .ranked-bars a:hover .rb-fill {
   background: var(--rule-soft);
+  border-bottom-color: var(--ink-soft);
 }
 .rb-name {
   position: relative;
