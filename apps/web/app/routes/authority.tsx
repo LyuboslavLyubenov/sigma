@@ -7,7 +7,7 @@ import { PageHeader } from '../components/PageHeader';
 import { FactsList } from '../components/FactsList';
 import { StackedBar } from '../components/StackedBar';
 import { ContractMiniTable } from '../components/ContractMiniTable';
-import { ShareBar, Chip, Section, SourceLine } from '../components/ui';
+import { ShareBar, Chip, Section } from '../components/ui';
 import { publicCache } from '../lib/cache';
 import { coverageRange, getCoverageMeta } from '../lib/coverage';
 
@@ -229,10 +229,6 @@ export default function Authority({ loaderData }: Route.ComponentProps) {
               Виж всички / филтрирай / свали като CSV →
             </Link>
           </p>
-          <SourceLine>
-            Източник: Регистър на обществените поръчки (АОП / ЦАИС ЕОП). Името на институцията е
-            канонизирано.
-          </SourceLine>
         </Section>
       </main>
     </>

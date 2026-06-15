@@ -80,8 +80,3 @@ export function Section({
     </section>
   );
 }
-
-// Inline source/citation line (mono, soft ink).
-export function SourceLine({ children }: { children: ReactNode }) {
-  return <p className="source">{children}</p>;
-}

@@ -180,6 +180,10 @@ export default function Methodology({ loaderData }: Route.ComponentProps) {
                   </dd>
                 </div>
                 <div className="row">
+                  <dt>Имена на институции</dt>
+                  <dd>Имената на институциите са канонизирани и нормализирани.</dd>
+                </div>
+                <div className="row">
                   <dt>Покрит период</dt>
                   <dd>
                     {period}. Договори от текущата година влизат с няколко седмици закъснение.

@@ -6,7 +6,7 @@ import type { Route } from './+types/contract';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { PageHeader } from '../components/PageHeader';
 import { FactsList } from '../components/FactsList';
-import { Chip, Flag, Section, SourceLine } from '../components/ui';
+import { Chip, Flag, Section } from '../components/ui';
 import { publicCache } from '../lib/cache';
 import { eopSourceFiles } from '../lib/eopSource';
 
@@ -492,10 +492,6 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
             </>
           )}
 
-          <SourceLine>
-            Източник: Регистър на обществените поръчки (АОП / ЦАИС ЕОП). СИГМА не променя
-            съдържанието на договора и не тълкува клаузите му.
-          </SourceLine>
         </Section>
       </main>
     </>

@@ -7,7 +7,7 @@ import { PageHeader } from '../components/PageHeader';
 import { FactsList } from '../components/FactsList';
 import { StackedBar } from '../components/StackedBar';
 import { ContractMiniTable } from '../components/ContractMiniTable';
-import { ShareBar, Chip, OwnershipChip, Section, SourceLine } from '../components/ui';
+import { ShareBar, Chip, OwnershipChip, Section } from '../components/ui';
 import { publicCache } from '../lib/cache';
 import { coverageRange, getCoverageMeta } from '../lib/coverage';
 
@@ -322,9 +322,6 @@ export default function Company({ loaderData }: Route.ComponentProps) {
               Виж всички / филтрирай / свали като CSV →
             </Link>
           </p>
-          <SourceLine>
-            Източник: АОП / ЦАИС ЕОП. {c.eik ? `ЕИК ${c.eik}.` : 'Изпълнител без потвърден ЕИК.'}
-          </SourceLine>
         </Section>
       </main>
     </>
