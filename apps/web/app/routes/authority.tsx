@@ -161,6 +161,13 @@ export default function Authority({ loaderData }: Route.ComponentProps) {
         <div className="two-col">
           <Section id="what" title="Какво купува" hint="CPV категориите, подредени по обем.">
             <table>
+              <caption className="sr-only">Какво купува {a.name} — по CPV категория</caption>
+              <thead className="sr-only">
+                <tr>
+                  <th scope="col">Сектор (CPV)</th>
+                  <th scope="col">Стойност и дял</th>
+                </tr>
+              </thead>
               <tbody>
                 {a.sectors.map((s) => (
                   <tr key={s.code}>
@@ -203,7 +210,7 @@ export default function Authority({ loaderData }: Route.ComponentProps) {
             </span>
           }
         >
-          <div className="tabset">
+          <div className="tabset" role="radiogroup" aria-label="Подреждане на договорите">
             <input
               type="radio"
               name="authority-contracts"
@@ -218,13 +225,27 @@ export default function Authority({ loaderData }: Route.ComponentProps) {
               className="tab-input"
             />
             <div className="tab-labels">
-              <label htmlFor="authority-recent">Най-нови</label>
-              <label htmlFor="authority-top">Най-големи по стойност</label>
+              <label id="tab-authority-recent" htmlFor="authority-recent">
+                Най-нови
+              </label>
+              <label id="tab-authority-top" htmlFor="authority-top">
+                Най-големи по стойност
+              </label>
             </div>
-            <div className="tab-panel" data-tab="recent">
+            <div
+              className="tab-panel"
+              data-tab="recent"
+              role="group"
+              aria-labelledby="tab-authority-recent"
+            >
               <ContractMiniTable items={a.recentContracts} counterparty="bidder" />
             </div>
-            <div className="tab-panel" data-tab="top">
+            <div
+              className="tab-panel"
+              data-tab="top"
+              role="group"
+              aria-labelledby="tab-authority-top"
+            >
               <ContractMiniTable items={a.topContracts} counterparty="bidder" />
             </div>
           </div>
