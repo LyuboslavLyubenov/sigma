@@ -174,17 +174,7 @@ export default function Company({ loaderData }: Route.ComponentProps) {
                 ))}
               </ol>
             ) : (
-              <blockquote
-                style={{
-                  margin: 0,
-                  padding: 'var(--s-3) var(--s-4)',
-                  borderLeft: '3px solid var(--rule, #ccc)',
-                  color: 'var(--ink-soft, #555)',
-                  whiteSpace: 'pre-wrap',
-                }}
-              >
-                {c.membershipNote}
-              </blockquote>
+              <blockquote className="empty-quote">{c.membershipNote}</blockquote>
             )}
           </Section>
         )}
@@ -236,7 +226,7 @@ export default function Company({ loaderData }: Route.ComponentProps) {
             </table>
           </div>
           {c.moreAuthorities > 0 && (
-            <p className="small muted" style={{ marginTop: 'var(--s-3)' }}>
+            <p className="small muted mt-s3">
               <Link to={`/contracts?bidder=${c.slug}`}>
                 … още {count(c.moreAuthorities)} институции — виж всички договори →
               </Link>
@@ -344,7 +334,7 @@ export default function Company({ loaderData }: Route.ComponentProps) {
               <ContractMiniTable items={c.topContracts} counterparty="authority" />
             </div>
           </div>
-          <p className="small muted" style={{ marginTop: 8 }}>
+          <p className="small muted mt-8">
             <Link to={`/contracts?bidder=${c.slug}`}>
               Виж всички / филтрирай / свали като CSV →
             </Link>

@@ -217,7 +217,7 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
                   <caption className="sr-only">Договори по обществени поръчки</caption>
                   <thead>
                     <tr>
-                      <th scope="col" style={{ width: 32 }}>
+                      <th scope="col" className="col-w-32">
                         #
                       </th>
                       <th scope="col">Договор</th>
@@ -278,17 +278,8 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
             {result.items.length > 0 && <Pagination nav={nav} pageSize={PAGE_SIZE.contracts} />}
 
             <Callout>
-              <h2
-                style={{
-                  font: '400 18px/1.25 var(--font-serif)',
-                  letterSpacing: '-0.01em',
-                  color: 'var(--ink, #111)',
-                  marginBottom: 6,
-                }}
-              >
-                Какво е „договор“ в СИГМА
-              </h2>
-              <p style={{ margin: 0 }}>
+              <h2>Какво е „договор“ в СИГМА</h2>
+              <p className="m-0">
                 Един възложен договор по обществена поръчка, на ниво обособена позиция (лот).
                 Стойностите са в евро — изчистена, съпоставима стойност на договора.
               </p>

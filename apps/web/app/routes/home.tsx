@@ -78,7 +78,7 @@ function SingleOfferTable({ items, allHref }: { items: ContractListItem[]; allHr
           </tbody>
         </table>
       </div>
-      <p className="small muted" style={{ marginTop: 8 }}>
+      <p className="small muted mt-8">
         <Link to={allHref}>Виж всички →</Link>
       </p>
     </>
@@ -166,10 +166,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           { num: count(totals.bidders), label: 'Компании изпълнители' },
         ]}
       />
-      <p
-        className="small muted"
-        style={{ margin: 'var(--s-2) auto 0', maxWidth: 'var(--measure)' }}
-      >
+      <p className="small muted coverage-note">
         Обхват: {coveragePartialNote(endYear)}
         {totals.asOf ? `, последен договор ${date(totals.asOf)}` : ''}.
       </p>
@@ -190,7 +187,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
           <div>
             <p className="subhead">Общини</p>
             <RankedBars items={topMunicipalities} />
-            <p className="small muted" style={{ marginTop: 8 }}>
+            <p className="small muted mt-8">
               <Link to="/authorities">Виж пълния списък на институциите →</Link>
             </p>
           </div>
@@ -308,7 +305,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
         </h2>
         <div className="two-col">
           <div>
-            <h3 style={{ marginBottom: 8 }}>Какво показва СИГМА</h3>
+            <h3 className="mb-8">Какво показва СИГМА</h3>
             <p>
               СИГМА — Система за Интегриран Граждански Мониторинг и Анализ — обединява публични
               данни от Регистъра на обществените поръчки (АОП / ЦАИС ЕОП): кой какво възлага, на
@@ -316,7 +313,7 @@ export default function Home({ loaderData }: Route.ComponentProps) {
             </p>
           </div>
           <div>
-            <h3 style={{ marginBottom: 8 }}>Основната единица: договорът</h3>
+            <h3 className="mb-8">Основната единица: договорът</h3>
             <p>
               Всяко обобщение тук — обща сума за институция, за компания или поток между двете — се
               свежда до конкретните възложени договори. „Брой оферти" показваме само като число;
