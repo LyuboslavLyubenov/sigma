@@ -23,6 +23,7 @@ import {
 } from '../lib/filters';
 import { publicCache } from '../lib/cache';
 import { withDbRetry } from '../lib/retry';
+import { seoMeta } from '../lib/meta';
 
 const VALUE_BUCKETS = [
   { value: 'lt100k', label: 'Под 100 хил. €' },
@@ -32,15 +33,14 @@ const VALUE_BUCKETS = [
   { value: 'gt100m', label: 'Над 100 млн. €' },
 ];
 
-export function meta(_: Route.MetaArgs) {
-  return [
-    { title: 'Договори — СИГМА' },
-    {
-      name: 'description',
-      content:
-        'Всеки сключен договор по обществена поръчка. Филтрите са в адреса, има и сваляне в CSV.',
-    },
-  ];
+export function meta({ matches }: Route.MetaArgs) {
+  return seoMeta({
+    matches,
+    path: '/contracts',
+    title: 'Договори — СИГМА',
+    description:
+      'Всеки сключен договор по обществена поръчка. Филтрите са в адреса, има и сваляне в CSV.',
+  });
 }
 
 export function headers() {

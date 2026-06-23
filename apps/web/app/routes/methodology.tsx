@@ -7,15 +7,15 @@ import { PageHeader } from '../components/PageHeader';
 import { Callout, Flag } from '../components/ui';
 import { publicCache } from '../lib/cache';
 import { START_YEAR, coverageEndYear } from '../lib/coverage';
+import { seoMeta } from '../lib/meta';
 
-export function meta(_: Route.MetaArgs) {
-  return [
-    { title: 'Методология и речник — СИГМА' },
-    {
-      name: 'description',
-      content: 'Откъде идват числата, как се сглобяват и какво съзнателно не показваме.',
-    },
-  ];
+export function meta({ matches }: Route.MetaArgs) {
+  return seoMeta({
+    matches,
+    path: '/methodology',
+    title: 'Методология и речник — СИГМА',
+    description: 'Откъде идват числата, как се сглобяват и какво съзнателно не показваме.',
+  });
 }
 
 export function headers() {

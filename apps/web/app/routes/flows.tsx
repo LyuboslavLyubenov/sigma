@@ -9,16 +9,16 @@ import { SankeyDiagram } from '../components/SankeyDiagram';
 import { Callout, Section } from '../components/ui';
 import { publicCache } from '../lib/cache';
 import { coverageRange, getCoverageMeta, yearOptions } from '../lib/coverage';
+import { seoMeta } from '../lib/meta';
 
-export function meta(_: Route.MetaArgs) {
-  return [
-    { title: 'Потоци на пари — СИГМА' },
-    {
-      name: 'description',
-      content:
-        'От институциите възложители към компаниите изпълнители. Дебелината на всеки поток отговаря на стойността на договорите.',
-    },
-  ];
+export function meta({ matches }: Route.MetaArgs) {
+  return seoMeta({
+    matches,
+    path: '/flows',
+    title: 'Потоци на пари — СИГМА',
+    description:
+      'От институциите възложители към компаниите изпълнители. Дебелината на всеки поток отговаря на стойността на договорите.',
+  });
 }
 
 export function headers() {

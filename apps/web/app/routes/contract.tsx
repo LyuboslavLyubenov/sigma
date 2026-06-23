@@ -9,6 +9,7 @@ import { FactsList } from '../components/FactsList';
 import { Chip, Flag, Section } from '../components/ui';
 import { publicCache } from '../lib/cache';
 import { eopSourceFiles } from '../lib/eopSource';
+import { seoMeta } from '../lib/meta';
 
 /**
  * Compose the muted sub-line under „Брой оферти". The AOP feed gives us the gross submitted count
@@ -41,17 +42,16 @@ function bidsBreakdown(c: ContractDetail): string | null {
   return parts.length > 0 ? parts.join(' · ') : null;
 }
 
-export function meta({ data }: Route.MetaArgs) {
+export function meta({ data, params, matches }: Route.MetaArgs) {
   const c = data?.contract;
-  return [
-    { title: `${c?.subject ?? 'Договор'} — СИГМА` },
-    {
-      name: 'description',
-      content: c
-        ? `Договор по УНП ${c.unp} между ${c.authority.name} и ${c.bidder.displayName}.`
-        : '',
-    },
-  ];
+  return seoMeta({
+    matches,
+    path: `/contracts/${params.id}`,
+    title: `${c?.subject ?? 'Договор'} — СИГМА`,
+    description: c
+      ? `Договор по УНП ${c.unp} между ${c.authority.name} и ${c.bidder.displayName}.`
+      : '',
+  });
 }
 
 export function headers() {

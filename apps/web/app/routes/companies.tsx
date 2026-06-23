@@ -21,6 +21,7 @@ import {
 } from '../lib/filters';
 import { publicCache } from '../lib/cache';
 import { getCoverageMeta, yearOptions } from '../lib/coverage';
+import { seoMeta } from '../lib/meta';
 
 const COUNT_BUCKETS = [
   { value: '1', label: '1 договор' },
@@ -30,14 +31,13 @@ const COUNT_BUCKETS = [
   { value: '100+', label: '100+' },
 ];
 
-export function meta(_: Route.MetaArgs) {
-  return [
-    { title: 'Компании — СИГМА' },
-    {
-      name: 'description',
-      content: 'Всяка компания, спечелила поне един договор по обществена поръчка.',
-    },
-  ];
+export function meta({ matches }: Route.MetaArgs) {
+  return seoMeta({
+    matches,
+    path: '/companies',
+    title: 'Компании — СИГМА',
+    description: 'Всяка компания, спечелила поне един договор по обществена поръчка.',
+  });
 }
 
 export function headers() {

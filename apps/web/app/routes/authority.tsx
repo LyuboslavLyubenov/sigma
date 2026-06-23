@@ -11,14 +11,17 @@ import { ShareBar, Chip, Section } from '../components/ui';
 import { publicCache } from '../lib/cache';
 import { coverageRange, getCoverageMeta } from '../lib/coverage';
 import { withDbRetry } from '../lib/retry';
+import { seoMeta } from '../lib/meta';
 
-export function meta({ data }: Route.MetaArgs) {
+export function meta({ data, params, matches }: Route.MetaArgs) {
   const name = data?.authority.name ?? 'Институция';
   const range = coverageRange(data?.coverage.coverageEndYear);
-  return [
-    { title: `${name} — СИГМА` },
-    { name: 'description', content: `Обществени поръчки на ${name}, ${range}.` },
-  ];
+  return seoMeta({
+    matches,
+    path: `/authorities/${params.eik}`,
+    title: `${name} — СИГМА`,
+    description: `Обществени поръчки на ${name}, ${range}.`,
+  });
 }
 
 export function headers() {

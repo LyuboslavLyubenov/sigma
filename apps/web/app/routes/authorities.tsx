@@ -20,12 +20,15 @@ import {
 } from '../lib/filters';
 import { publicCache } from '../lib/cache';
 import { coverageRange, getCoverageMeta, yearOptions } from '../lib/coverage';
+import { seoMeta } from '../lib/meta';
 
-export function meta(_: Route.MetaArgs) {
-  return [
-    { title: 'Институции — СИГМА' },
-    { name: 'description', content: 'Всяка институция, възложила поне един договор.' },
-  ];
+export function meta({ matches }: Route.MetaArgs) {
+  return seoMeta({
+    matches,
+    path: '/authorities',
+    title: 'Институции — СИГМА',
+    description: 'Всяка институция, възложила поне един договор по обществена поръчка.',
+  });
 }
 
 export function headers() {
