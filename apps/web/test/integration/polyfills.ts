@@ -8,23 +8,25 @@
 // in one Node process is in-memory but does notime out under the workerd semantics.
 // The integration tests assert first-request shapes only, not HIT-on-second.
 
+import { afterEach } from 'vitest';
+
 class InMemoryCache {
   private map = new Map<string, Response>();
 
   async match(req: Request | string): Promise<Response | undefined> {
     const key = typeof req === 'string' ? req : req.url;
-    return this.map.get(key);
+    return this.map.get(key)?.clone();
   }
   async put(req: Request | string, res: Response): Promise<void> {
     const key = typeof req === 'string' ? req : req.url;
-    this.map.set(key, res);
+    this.map.set(key, res.clone());
   }
   async delete(req: Request | string): Promise<boolean> {
     const key = typeof req === 'string' ? req : req.url;
     return this.map.delete(key);
   }
   async matchAll(): Promise<Response[]> {
-    return Array.from(this.map.values());
+    return Array.from(this.map.values(), (res) => res.clone());
   }
   async keys(): Promise<string[]> {
     return Array.from(this.map.keys());
@@ -34,6 +36,9 @@ class InMemoryCache {
   }
   static get default(): InMemoryCache {
     return new InMemoryCache();
+  }
+  clear(): void {
+    this.map.clear();
   }
 }
 
@@ -68,9 +73,18 @@ class InMemoryCacheStorage {
   async keys(): Promise<string[]> {
     return Array.from(this.byName.keys());
   }
+  clear(): void {
+    for (const cache of this.byName.values()) cache.clear();
+    this.byName.clear();
+  }
 }
 
 if (typeof (globalThis as unknown as { caches?: unknown }).caches === 'undefined') {
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   (globalThis as any).caches = new InMemoryCacheStorage();
 }
+
+afterEach(() => {
+  const cacheStorage = (globalThis as unknown as { caches?: { clear?: () => void } }).caches;
+  cacheStorage?.clear?.();
+});

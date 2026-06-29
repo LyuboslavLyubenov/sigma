@@ -86,20 +86,26 @@ describe('contract detail + JSON sibling (issue #94)', () => {
     expect(typeof parsed.unp).toBe('string');
 
     // The authority / bidder objects are populated from the fixture.
-    const authority = parsed.authority as Record<string, unknown> | undefined;
-    expect(authority?.name).toBe('Authority Test');
-    expect(authority?.slug).toBe('BG000000000');
+    expect(parsed.authority).toBeTypeOf('object');
+    expect(parsed.authority).not.toBeNull();
+    const authority = parsed.authority as Record<string, unknown>;
+    expect(authority.name).toBe('Authority Test');
+    expect(authority.slug).toBe('BG000000000');
 
-    const bidder = parsed.bidder as Record<string, unknown> | undefined;
-    expect(bidder?.name).toBe('Bidder Test');
+    expect(parsed.bidder).toBeTypeOf('object');
+    expect(parsed.bidder).not.toBeNull();
+    const bidder = parsed.bidder as Record<string, unknown>;
+    expect(bidder.name).toBe('Bidder Test');
 
     // The ContractRecord contract carries a `sourceNames` block — verbatim
     // names from the source feed. The fixture authority / bidder rows carry
     // these in `name` (no Cyrillic for ASCII test data), so the verbatim form
     // matches the displayed form here.
-    const sourceNames = parsed.sourceNames as Record<string, unknown> | undefined;
-    expect(sourceNames?.authority).toBe('Authority Test');
-    expect(sourceNames?.bidder).toBe('Bidder Test');
+    expect(parsed.sourceNames).toBeTypeOf('object');
+    expect(parsed.sourceNames).not.toBeNull();
+    const sourceNames = parsed.sourceNames as Record<string, unknown>;
+    expect(sourceNames.authority).toBe('Authority Test');
+    expect(sourceNames.bidder).toBe('Bidder Test');
   });
 
   it('GET /contracts/does-not-exist.json — 404 + { error: "not_found" }', async () => {
