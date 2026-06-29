@@ -11,9 +11,12 @@ import { defineConfig } from 'vitest/config';
 import { reactRouter } from '@react-router/dev/vite';
 import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
-const otelBaggageUtils = path.resolve(
-  '/Users/lyuboslavlyubenov/Desktop/sigma-web-route-integration/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/esm/baggage/utils.js',
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const otelEsmRoot = path.join(
+  repoRoot,
+  'node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/esm',
 );
 
 export default defineConfig({
@@ -25,11 +28,11 @@ export default defineConfig({
       // Vite resolves the alias through its own resolver; vite-node uses it too.
       {
         find: /^@opentelemetry\/api\/build\/esm\/baggage\/utils$/,
-        replacement: otelBaggageUtils,
+        replacement: path.join(otelEsmRoot, 'baggage/utils.js'),
       },
       {
         find: /^@opentelemetry\/api\/build\/esm\/trace\/internal\/utils$/,
-        replacement: '/Users/lyuboslavlyubenov/Desktop/sigma-web-route-integration/node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/esm/trace/internal/utils.js',
+        replacement: path.join(otelEsmRoot, 'trace/internal/utils.js'),
       },
     ],
   },
@@ -50,7 +53,6 @@ export default defineConfig({
     include: ['test/integration/**/*.test.ts'],
     exclude: [
       'app/**/*.test.ts',
-      'test/integration/__archive__r2_spike__/**',
       'workers/csv-rate-limit.test.ts',
       'workers/csp.test.ts',
       'workers/rate-limit.test.ts',

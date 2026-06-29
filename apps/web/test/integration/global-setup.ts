@@ -2,11 +2,7 @@
 // test run, applies migrations manually, seeds the fixture, and disposes on exit.
 import { readFileSync } from 'node:fs';
 import wrangler from 'wrangler';
-
-const WEBROOT = '/Users/lyuboslavlyubenov/Desktop/sigma-web-route-integration';
-const WRANGLER_JSONC = `${WEBROOT}/apps/web/wrangler.jsonc`;
-const MIG_0000 = `${WEBROOT}/packages/db/migrations/0000_init.sql`;
-const MIG_0001 = `${WEBROOT}/packages/db/migrations/0001_flow_pairs_bidder_index.sql`;
+import { MIG_0000, MIG_0001, WRANGLER_JSONC } from './paths';
 
 function stripSqlCommentsAndCollapse(raw: string): string[] {
   const stripped = raw

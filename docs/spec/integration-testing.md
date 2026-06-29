@@ -56,7 +56,7 @@ Issue `#94` поиска работна интеграционна лента з
 - `apps/web/vitest.integration.config.ts` (integration проект) зарежда `reactRouter()` + `@tailwindcss/vite` плюс `setupFiles: ['./test/integration/polyfills.ts']`.
 - `apps/web/vitest.workspace.ts` обединява двата проекта в един root и `pnpm --filter @sigma/web test` върви през `vitest run --config vitest.workspace.ts`.
 
-Допълнителна настройка: `ssr.noExternal: ['@opentelemetry/api', 'ai', '@ai-sdk/openai']` (или еквивалентни `resolve.alias` записи) заобикаля `@opentelemetry/api@1.9.1` ESM билд проблем — extension-less relative imports (`./baggage/utils`), които Node 24 strict loader отхвърля; `vite-node` ги pre-bundle-ва през `noExternal`.
+Допълнителна настройка: `ssr.noExternal: ['@opentelemetry/api', 'ai', '@ai-sdk/openai']` плюс `resolve.alias` записи заобикаля `@opentelemetry/api@1.9.1` ESM билд проблем — extension-less relative imports (`./baggage/utils`), които Node 24 strict loader отхвърля. Alias-ите се смятат относително спрямо repo root-а, не към локален абсолютен checkout път, за да работят в CI и на други машини.
 
 ### 5. Seed-ната D1 фикстура — 30 реда
 
@@ -84,10 +84,10 @@ Issue `#94` поиска работна интеграционна лента з
 | `apps/web/test/integration/routes.test.ts` | 13 маршрута от issue `#94` — status + security headers + Content-Type + `X-Edge-Cache: MISS|BYPASS` |
 | `apps/web/test/integration/sitemaps.test.ts` | `/sitemap.xml`, `/sitemap-pages.xml`, `/sitemap-contracts.xml`, `/sitemap-companies.xml`, `/sitemap-authorities.xml`, `/robots.txt` — отделни тестове с проверка на `<urlset>`, `<loc>` елементи |
 | `apps/web/test/integration/contracts-detail-json.test.ts` | `/contracts/1` (HTML) + `/contracts/1.json` (JSON:200 + Content-Type:application/json) |
-| `apps/web/test/integration/rate-limit.csv.test.ts` | 11 successive `GET /contracts.csv` → първите 10 = 200, 11-и = 429 с `Retry-After: 60` и `csv.error.cooldown` body |
+| `apps/web/test/integration/rate-limit.csv.test.ts` | 11 successive `GET /contracts.csv` → първите 10 = 200 или документирания dev-mode 500, 11-и = 429 с `Retry-After: 60` и `Too many CSV export requests` body |
 | `apps/web/test/integration/contracts-pagination.test.ts` | SSR cursor extraction → следваща страница → disjoint ids + monotone decreasing `amount_eur` |
-| `apps/web/test/integration/contracts-csv.test.ts` | Defensive: worker-ът достига до `/contracts.csv` route-а, очаквани Content-Type / Cache-Control / `X-Edge-Cache` headers (виж Entry 2 в `ralph/criteria-revisions.md`) |
-| `apps/web/test/integration/edge-cache.test.ts` | Първата заявка за cacheable route → `X-Edge-Cache: MISS\|BYPASS`; HIT-on-second-request е умишлено извън обхвата (Entry 1 в `ralph/criteria-revisions.md`) |
+| `apps/web/test/integration/contracts-csv.test.ts` | Defensive: worker-ът достига до `/contracts.csv` route-а, очаквани Content-Type / Cache-Control / `X-Edge-Cache` headers; пълният streaming body parse остава извън обхвата на dev-mode лентата |
+| `apps/web/test/integration/edge-cache.test.ts` | Първата заявка за cacheable route → `X-Edge-Cache: MISS\|BYPASS`; HIT-on-second-request е умишлено извън обхвата |
 
 ### 8. Как се пуска
 
@@ -135,13 +135,13 @@ pnpm --filter @sigma/web typecheck
 
 В Round 2 пробвахме `GET /contracts.csv` 200 + `text/csv` + body parse. През dev mode (`@react-router/dev` `devalue.stringify`) loader-ът връща `R2Object` от `env.CSV_CACHE.get(...)`, който не е POJO.
 
-**Избор:** Деферирано (Entry 2 в `ralph/criteria-revisions.md`). `servedCsvExport` unit тест + `csv-rate-limit` unit тест + integration rate-limit burst test покриват заедно рисковете — production build (`mode: 'production'`) заобикаля `devalue` изцяло, така че streaming CSV assertion ще влезе в бъдещ pre-built-mode integration lane (извън обхвата на `#94`).
+**Избор:** Деферирано. `servedCsvExport` unit тест + `csv-rate-limit` unit тест + integration rate-limit burst test покриват заедно рисковете — production build (`mode: 'production'`) заобикаля `devalue` изцяло, така че streaming CSV assertion ще влезе в бъдещ pre-built-mode integration lane (извън обхвата на `#94`).
 
 ### F. Edge cache HIT-on-second-request assertion
 
 В Round 2 пробвахме `cache.put(req, res)` → `cache.match(req)` да върне hit. Полифилният `Map`-backed `CacheStorage` не прави round-trip както workerd isolate.
 
-**Избор:** Деферирано (Entry 1 в `ralph/criteria-revisions.md`). `apps/web/workers/app.cache.test.ts` unit тестът покрива upstream логиката; integration тестът асъртва първата заявка (`MISS|BYPASS`). Условие за връщане: миграция към `@cloudflare/vitest-pool-workers`.
+**Избор:** Деферирано. `apps/web/workers/app.cache.test.ts` unit тестът покрива upstream логиката; integration тестът асъртва първата заявка (`MISS|BYPASS`). Условие за връщане: миграция към `@cloudflare/vitest-pool-workers`.
 
 ### G. Wrangler `unstable_dev` (legacy runtime test API)
 
@@ -169,8 +169,8 @@ Per-route handler тестове остават полезни за изолир
 
 ## Алтернативи, които не разгледахме в Round 1–3 (out of scope)
 
-- **Browser-level E2E** (`#95` — Playwright + WebKit/Chromium) — изрично извън обхвата на `#94` (Entry 6 в `ralph/criteria-revisions.md`).
-- **Coverage thresholds** (`#93`) — изрично извън обхвата (`goals.md`, Constraint).
+- **Browser-level E2E** (`#95` — Playwright + WebKit/Chromium) — изрично извън обхвата на `#94`.
+- **Coverage thresholds** (`#93`) — изрично извън обхвата на тази интеграционна лента.
 
 Тези два ще имат отделни тикети и ADR-и, ако бъдат отворени в бъдеще.
 
@@ -188,14 +188,14 @@ Per-route handler тестове остават полезни за изолир
 
 - **HIT-on-second-request не е покрит** — деферирано, докато не мигрираме към `@cloudflare/vitest-pool-workers`.
 - **Streaming CSV end-to-end (`/contracts.csv` body parse) не е покрит** в dev mode — деферирано, докато не преминем към pre-built-mode integration.
-- **`/assistant/chat` (AI route) не е покрит** — изрично извън обхвата на `#94` (Entry 4 в `ralph/criteria-revisions.md`).
-- **`/search/suggest` не е покрит** интеграционно — unit покритие в `apps/web/app/routes/search.suggest.test.ts`; Entry 5 в `ralph/criteria-revisions.md`.
-- **Browser E2E (`#95`) и generic coverage thresholds (`#93`) не са в обхвата** — Entry 6 в `ralph/criteria-revisions.md`.
+- **`/assistant/chat` (AI route) не е покрит** — изрично извън обхвата на `#94`.
+- **`/search/suggest` не е покрит** интеграционно — unit покритие в `apps/web/app/routes/search.suggest.test.ts`.
+- **Browser E2E (`#95`) и generic coverage thresholds (`#93`) не са в обхвата** на тази лента.
 
 ### Operational notes
 
 - **CI gate**: `pnpm --filter @sigma/web test && pnpm --filter @sigma/web typecheck` — двата проекта вървят последователно в рамките на `test` script-а (`vitest run --config vitest.workspace.ts`).
-- **CI startup cost**: Integration проектът добавя **~2–3 секунди** startup на виртуалния miniflare D1 + SQL preprocessor + 30-редова фикстура. Виртуалният `persist: false` D1 е in-memory, така че няма disk I/O освен четенето на двата малки migration файла (`packages/db/migrations/0000_init.sql` + `0001_flow_pairs_bidder_index.sql`). За 9 тест файла / 34 теста общият runtime е под 4 секунди на стандартен лаптоп. Ако тази латентност стане проблем за CI, първото нещо, което да се оптимизира, е local bootstrap — мениджмънтът на `wrangler.getPlatformProxy({ persist: false })` се стреми да мемоизира проксито в `globalThis.__SIGMA_PROXY__` per worker process.
+- **CI startup cost**: Integration проектът добавя **~2–3 секунди** startup на виртуалния miniflare D1 + SQL preprocessor + 30-редова фикстура. Виртуалният `persist: false` D1 е in-memory, така че няма disk I/O освен четенето на двата малки migration файла (`packages/db/migrations/0000_init.sql` + `0001_flow_pairs_bidder_index.sql`). За 7 тест файла / 34 теста общият runtime е под 4 секунди на стандартен лаптоп. Ако тази латентност стане проблем за CI, първото нещо, което да се оптимизира, е local bootstrap — мениджмънтът на `wrangler.getPlatformProxy({ persist: false })` се стреми да мемоизира проксито в `globalThis.__SIGMA_PROXY__` per worker process.
 - **Miniflare state isolation** (per C8): всеки vitest test file върви в собствен worker thread (`vmThreads`), а `wrangler.getPlatformProxy({ persist: false })` се bootstrap-ва lazy per-file в `setup.ts`. Двата worker thread-а получават два независими in-memory D1 binding-а — нулев cross-talk. Глобалният `globalSetup` (ако е конфигуриран) е **само оптимизация**, не е correctness gate: `setup.ts` е проектиран да работи самостоятелно, така че дори globalSetup да липсва/падне, тестовете минават. Rate-limit binding-ите СПОДЕЛЯТ in-memory state в рамките на един worker process — за това burst тестът извиква `__resetSigmaProxyForTesting()` в `beforeAll` (виж `rate-limit.csv.test.ts:42` коментара за пълното обяснение).
 - **Конфликт с `pnpm dev` (`.wrangler/state`)** (per C8): `wrangler dev` и `react-router dev` пишат **на диска** в `apps/web/.wrangler/state/` за да persist-нат локалния D1 seed (`pnpm setup` и `pnpm run import` създават там production-lite данните). Лансирането на `pnpm dev` и `pnpm --filter @sigma/web test:integration` **по едно и също време** е безопасно: integration лентата използва `persist: false` и не докосва `.wrangler/state/` — нейният miniflare е изцяло in-memory и се самоунищожава при `proxy.dispose()`. Ако в бъдеще екипът мигрира към `unstable_dev` или `@cloudflare/vitest-pool-workers` (които пишат на диска), ще трябва да се добави един от: (а) `persist: { path: <tmpdir> }` плюс mutex върху `.wrangler/state/`; или (б) задължителен `pnpm dev` stop преди integration lane. **Днес не е необходимо.**
 - **Локално debugging**: `pnpm --filter @sigma/web test:integration -- --testNamePattern "<route>"` филтрира до един тест; `console.log` вътре в теста излиза нормално.
@@ -207,5 +207,3 @@ Per-route handler тестове остават полезни за изолир
 - [`deploy.md`](deploy.md) — деплой към Cloudflare: как `wrangler.jsonc` binding-ите (включително `ratelimit`) стигат до production.
 - [`apps/web/test/README.md`](../../apps/web/test/README.md) — кратко практическо ръководство за пускане и debugging на integration лентата.
 - [`README.md`](../../README.md) — главният repo readme; Testing секцията е обновена с един ред за `test:integration`.
-- [`ralph/criteria-revisions.md`](../../ralph/criteria-revisions.md) — всички scope cuts и deferred assertions, свързани с тази лента.
-- [`ralph/assumptions.md`](../../ralph/assumptions.md) — assumptions ledger за тази итерация (A0–A7), с доказателства в [`ralph/evidence.md`](../../ralph/evidence.md).
