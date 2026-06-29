@@ -35,10 +35,10 @@ apps/web/test/
 # Unit lane — само чисти функции, без Worker pipeline (~930 ms, 32 файла, 291 теста)
 pnpm --filter @sigma/web test:unit
 
-# Integration lane — Worker + D1 + bindings през wrangler.getPlatformProxy (~2–3 s, 9 файла, 46 теста)
+# Integration lane — Worker + D1 + bindings през wrangler.getPlatformProxy (~2–3 s, 7 файла, 34 теста)
 pnpm --filter @sigma/web test:integration
 
-# Двете ленти последователно — CI gate, exit 0 = зелено (общо 41 файлa, 337 теста, ~5–6 s)
+# Двете ленти последователно — CI gate, exit 0 = зелено (общо 39 файлa, 325 теста, ~5–6 s)
 pnpm --filter @sigma/web test
 
 # Typecheck (независимо)

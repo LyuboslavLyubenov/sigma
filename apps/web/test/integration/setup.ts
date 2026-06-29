@@ -22,6 +22,7 @@
 
 import { readFileSync } from 'node:fs';
 import wrangler from 'wrangler';
+import { MIG_0000, MIG_0001, WRANGLER_JSONC } from './paths';
 
 type SigmaProxy = Awaited<ReturnType<typeof wrangler.getPlatformProxy>>;
 
@@ -40,11 +41,6 @@ declare global {
 
 let appPromise: Promise<WorkerApp> | null = null;
 let proxyPromise: Promise<SigmaProxy> | null = null;
-
-const WEBROOT = '/Users/lyuboslavlyubenov/Desktop/sigma-web-route-integration';
-const WRANGLER_JSONC = `${WEBROOT}/apps/web/wrangler.jsonc`;
-const MIG_0000 = `${WEBROOT}/packages/db/migrations/0000_init.sql`;
-const MIG_0001 = `${WEBROOT}/packages/db/migrations/0001_flow_pairs_bidder_index.sql`;
 
 function stripSqlCommentsAndCollapse(raw: string): string[] {
   const stripped = raw

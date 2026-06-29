@@ -63,11 +63,35 @@ import { appFetch, __resetSigmaProxyForTesting } from './setup';
 
 const BASE = 'https://sigma.test';
 const CSV_PATH = '/contracts.csv';
+const DEV_MODE_500_BODY_PREFIX = 'Unexpected Server Error';
+const DEV_MODE_500_BODY_TOKEN = 'DevalueError';
 
 function csvRequest(ip: string): Request {
   return new Request(`${BASE}${CSV_PATH}`, {
     headers: { 'CF-Connecting-IP': ip },
   });
+}
+
+async function assertCsvNonRateLimitedResponse(res: Response, label: string): Promise<void> {
+  const body = await res.text();
+
+  if (res.status === 200) return;
+
+  if (res.status === 500) {
+    expect(
+      body.startsWith(DEV_MODE_500_BODY_PREFIX),
+      `[sigma/test/rate-limit] ${label} dev-mode 500 body must start with "${DEV_MODE_500_BODY_PREFIX}" — got first 200 chars: ${JSON.stringify(body.slice(0, 200))}`,
+    ).toBe(true);
+    expect(
+      body,
+      `[sigma/test/rate-limit] ${label} dev-mode 500 body must mention the devalue error class — got first 400 chars: ${JSON.stringify(body.slice(0, 400))}`,
+    ).toContain(DEV_MODE_500_BODY_TOKEN);
+    return;
+  }
+
+  expect.fail(
+    `[sigma/test/rate-limit] ${label} must return 200 or the documented dev-mode 500 before the rate-limit bucket is exhausted; got ${res.status}`,
+  );
 }
 
 describe('CSV export rate limit — 11× burst (issue #94 / A3)', { concurrent: false }, () => {
@@ -85,20 +109,11 @@ describe('CSV export rate limit — 11× burst (issue #94 / A3)', { concurrent: 
     let eleventh: Response | null = null;
 
     for (let i = 1; i <= 11; i++) {
-      try {
-        const res = await appFetch(csvRequest('203.0.113.30'));
-        if (i === 11) {
-          eleventh = res;
-        } else {
-          await res.text();
-        }
-      } catch {
-        // `/contracts.csv` may 500 in dev-mode (A5 inconclusive: dev-mode
-        // `devalue` chokes on the R2 multipart-upload path's `R2Object`
-        // yields). The CSV rate-limit check at `workers/app.ts:96` runs
-        // BEFORE the request handler, so call 11's 429 is independent of
-        // any prior handler-side failure. Tolerate prior-call errors and
-        // assert only the 11th call's contract.
+      const res = await appFetch(csvRequest('203.0.113.30'));
+      if (i === 11) {
+        eleventh = res;
+      } else {
+        await assertCsvNonRateLimitedResponse(res, `call ${i} from 203.0.113.30`);
       }
     }
 
@@ -121,26 +136,18 @@ describe('CSV export rate limit — 11× burst (issue #94 / A3)', { concurrent: 
     let eleventh: Response | null = null;
 
     for (let i = 1; i <= 11; i++) {
-      try {
-        const res = await appFetch(csvRequest('198.51.100.7'));
-        if (i === 1) {
-          firstResponse = res;
-        } else if (i === 11) {
-          eleventh = res;
-        } else {
-          await res.text();
-        }
-      } catch {
-        // Same dev-mode `devalue` tolerance as the first test: the rate-limit
-        // 429 path is independent of any handler-side failure on prior calls.
+      const res = await appFetch(csvRequest('198.51.100.7'));
+      if (i === 1) {
+        firstResponse = res;
+        await assertCsvNonRateLimitedResponse(res, 'first call from fresh IP 198.51.100.7');
+      } else if (i === 11) {
+        eleventh = res;
+      } else {
+        await assertCsvNonRateLimitedResponse(res, `call ${i} from 198.51.100.7`);
       }
     }
 
     expect(firstResponse, '[sigma/test/rate-limit] expected first response to be captured').not.toBeNull();
-    expect(
-      firstResponse!.status,
-      '[sigma/test/rate-limit] first call from a fresh IP must not be 429 (per-IP bucket isolation); got status from response',
-    ).not.toBe(429);
 
     expect(eleventh, '[sigma/test/rate-limit] expected 11th response to be captured').not.toBeNull();
     expect(eleventh!.status).toBe(429);
