@@ -5,7 +5,7 @@
 // `globalThis.caches` is read at workers/app.ts:29 module-init time. The polyfill is a
 // minimal in-memory CacheStorage — sufficient for the routes we exercise. It does NOT
 // roundtrip the same as the workerd isolate cache (E-P1T1-010): put/match across calls
-// in one Node process is in-memory but does notime out under the workerd semantics.
+// in one Node process is in-memory but does not time out under the workerd semantics.
 // The integration tests assert first-request shapes only, not HIT-on-second.
 
 import { afterEach } from 'vitest';
