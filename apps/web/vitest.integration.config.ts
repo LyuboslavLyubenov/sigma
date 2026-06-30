@@ -10,14 +10,33 @@
 import { defineConfig } from 'vitest/config';
 import { reactRouter } from '@react-router/dev/vite';
 import tailwindcss from '@tailwindcss/vite';
+import { existsSync, readdirSync } from 'node:fs';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const otelEsmRoot = path.join(
-  repoRoot,
-  'node_modules/.pnpm/@opentelemetry+api@1.9.1/node_modules/@opentelemetry/api/build/esm',
-);
+const require = createRequire(import.meta.url);
+
+function resolveOtelEsmRoot(): string {
+  try {
+    return path.join(path.dirname(require.resolve('@opentelemetry/api/package.json')), 'build/esm');
+  } catch {
+    const pnpmStore = path.join(repoRoot, 'node_modules/.pnpm');
+    const packageDir = readdirSync(pnpmStore)
+      .filter((entry) => entry.startsWith('@opentelemetry+api@'))
+      .map((entry) => path.join(pnpmStore, entry, 'node_modules/@opentelemetry/api'))
+      .find((candidate) => existsSync(path.join(candidate, 'build/esm')));
+
+    if (!packageDir) {
+      throw new Error('Unable to resolve @opentelemetry/api build/esm directory for integration tests');
+    }
+
+    return path.join(packageDir, 'build/esm');
+  }
+}
+
+const otelEsmRoot = resolveOtelEsmRoot();
 
 export default defineConfig({
   plugins: [tailwindcss(), reactRouter()],
