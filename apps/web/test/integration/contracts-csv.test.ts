@@ -17,9 +17,7 @@
 //                             + "\n" (the header row produced by
 //                             `packages/db/src/queries/contracts.ts:streamContractsCsv`).
 //
-//   2. **500 Internal Server Error** — the dev-mode `devalue` 500 documented in
-//      `ralph/assumptions.md` (A5 inconclusive, E-P1T1-017) and
-//      `ralph/criteria-revisions.md` Entry 2:
+//   2. **500 Internal Server Error** — the documented dev-mode `devalue` 500:
 //
 //        Body: "Unexpected Server Error\n\nDevalueError: Cannot stringify
 //        arbitrary non-POJOs\n..."
@@ -41,9 +39,8 @@
 //
 // Why this suite is DEFENSIVE rather than asserting one branch exclusively:
 //
-//   `ralph/criteria-revisions.md` Entry 2 documents the dev-mode 500 as a
-//   deferred scope cut for the streaming CSV end-to-end assertion. The
-//   production 200 path is exercised in isolation by
+//   ADR-0002 documents the dev-mode 500 as a deferred scope cut for the
+//   streaming CSV end-to-end assertion. The production 200 path is exercised in isolation by
 //   `apps/web/app/lib/csv-export.test.ts` (unit-test lane) and
 //   `packages/db/src/queries/csv.test.ts` (unit-test lane for the streaming
 //   query). This integration suite fills the gap left by the deferred item:
@@ -107,7 +104,7 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
     // IP within 60s; this test makes one request, so 429 is unexpected here.
     expect(
       res.status === 200 || res.status === 500,
-      `[sigma/test/csv] /contracts.csv must return 200 (production path) or 500 (dev-mode devalue scope cut — see ralph/criteria-revisions.md Entry 2) — got ${res.status}. A 4xx other than 500 indicates a route or gate regression.`,
+      `[sigma/test/csv] /contracts.csv must return 200 (production path) or 500 (documented dev-mode devalue scope cut) — got ${res.status}. A 4xx other than 500 indicates a route or gate regression.`,
     ).toBe(true);
 
     // The worker always applies the base security-header set (see
