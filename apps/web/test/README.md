@@ -20,12 +20,11 @@ apps/web/test/
     ├── rate-limit.csv.test.ts  11× burst → 11-и = 429 + Retry-After; per-IP isolation
     ├── contracts-pagination.test.ts
     │                          cursor extraction → next page → disjoint ids + monotone amount_eur
-    ├── contracts-csv.test.ts   defensive: worker-ът стига до /contracts.csv + header shape (Entry 2 в
-    │                          ralph/criteria-revisions.md)
-    └── edge-cache.test.ts    X-Edge-Cache: MISS|BYPASS на първата заявка (Entry 1 в criteria-revisions.md)
+    ├── contracts-csv.test.ts   defensive: worker-ът стига до /contracts.csv + header/body shape
+    └── edge-cache.test.ts    X-Edge-Cache: MISS|BYPASS на първата заявка
 ```
 
-Вижте също [`docs/spec/integration-testing.md`](../../../docs/spec/integration-testing.md) (ADR-0002) за пълното обяснение на архитектурното решение и [`ralph/assumptions.md`](../../../ralph/assumptions.md) за експерименталните доказателства зад всяка избрана fall-back позиция.
+Вижте също [`docs/spec/integration-testing.md`](../../../docs/spec/integration-testing.md) (ADR-0002) за пълното обяснение на архитектурното решение, включително умишлените scope cuts за HIT-on-second-request и streaming CSV body parse в dev mode.
 
 ## Как се пуска
 
@@ -124,7 +123,7 @@ describe('routes — header contract (issue #94)', () => {
    - `Cross-Origin-Resource-Policy: same-origin`
    - `Permissions-Policy: geolocation=(), microphone=(), camera=()`
    - `Content-Security-Policy: ABSENT` (тестовата лента е `import.meta.env.PROD === false`).
-3. **`assertEdgeCacheFirstRequest`** асъртва `X-Edge-Cache: MISS|BYPASS` — `HIT` е умишлено извън обхвата (Entry 1 в `ralph/criteria-revisions.md`).
+3. **`assertEdgeCacheFirstRequest`** асъртва `X-Edge-Cache: MISS|BYPASS` — `HIT` е умишлено извън обхвата на тази лента и е описан в ADR-0002.
 4. **Content-Type хелпъри** (`assertHtmlContentType`, `assertSitemapContentType`, `assertTextPlainContentType`, `assertJsonContentType`, `assertCsvContentType`) — изберете според реалния Content-Type, който маршрутът емитира. Regex-ите толерират `charset=utf-8` суфикс.
 
 ### 2. Body-shape тест за нов маршрут
@@ -198,6 +197,4 @@ describe('GET /some-route — body shape', () => {
 ## Полезни файлове за справка
 
 - [`docs/spec/integration-testing.md`](../../../docs/spec/integration-testing.md) — ADR-0002: защо `getPlatformProxy`, защо ръчна миграция, защо polyfill, какви са умишлените scope cuts.
-- [`ralph/criteria-revisions.md`](../../../ralph/criteria-revisions.md) — Entry 1 (HIT-on-second-request) и Entry 2 (CSV streaming dev-mode 500) — двата умишлени извънобхватни item-а за `#94`.
-- [`ralph/assumptions.md`](../../../ralph/assumptions.md) — A0–A7: assumptions ledger с препратки към експериментите (`E-P1T1-NNN`) в [`ralph/evidence.md`](../../../ralph/evidence.md).
 - [`vitest.workspace.ts`](../vitest.workspace.ts), [`vitest.config.ts`](../vitest.config.ts), [`vitest.integration.config.ts`](../vitest.integration.config.ts) — конфигурацията на трите проекта.

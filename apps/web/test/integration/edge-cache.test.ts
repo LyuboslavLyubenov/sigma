@@ -39,9 +39,8 @@
 //   - `apps/web/workers/app.cache.test.ts` exercises `hardenResponse`'s
 //     `cacheable` branch in isolation (the unit-test lane covers the upstream
 //     logic).
-//   - `ralph/criteria-revisions.md` Entry 1 documents the HIT-on-second-request
-//     deferral and the conditions to revisit it (migration to
-//     `@cloudflare/vitest-pool-workers`).
+//   - ADR-0002 documents the HIT-on-second-request deferral and the condition
+//     to revisit it: migration to `@cloudflare/vitest-pool-workers`.
 //
 // IP selection:
 //

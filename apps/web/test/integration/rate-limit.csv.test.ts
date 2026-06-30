@@ -18,8 +18,7 @@
 //      by `rateLimitCsvExport()` in `apps/web/workers/csv-rate-limit.ts`.
 //
 //      Calls 1-10 may surface the documented dev-mode `devalue` 500 from
-//      `/contracts.csv` (A5 inconclusive per `ralph/assumptions.md` — the R2
-//      multipart-upload path yields `R2Object`-bearing promises that
+//      `/contracts.csv` — the R2 multipart-upload path yields `R2Object`-bearing promises that
 //      `@react-router/dev` in `mode: 'test'` cannot serialise). The rate-limit
 //      check fires before the request handler runs, so the 11th call's 429 is
 //      independent of any prior handler-side failure. The loop tolerates
