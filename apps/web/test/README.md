@@ -31,13 +31,13 @@ apps/web/test/
 Всички команди се изпълняват от корена на монорепото:
 
 ```bash
-# Unit lane — само чисти функции, без Worker pipeline (~930 ms, 32 файла, 291 теста)
+# Unit lane — само чисти функции, без Worker pipeline (~1 s, 30 файла, 284 теста)
 pnpm --filter @sigma/web test:unit
 
 # Integration lane — Worker + D1 + bindings през wrangler.getPlatformProxy (~2–3 s, 7 файла, 34 теста)
 pnpm --filter @sigma/web test:integration
 
-# Двете ленти последователно — CI gate, exit 0 = зелено (общо 39 файлa, 325 теста, ~5–6 s)
+# Двете ленти последователно — CI gate, exit 0 = зелено (общо 37 файлa, 318 теста, ~5–6 s)
 pnpm --filter @sigma/web test
 
 # Typecheck (независимо)
