@@ -3,6 +3,7 @@ import { getDb } from '@sigma/db';
 
 const CSV_CONTENT_TYPE = 'text/csv; charset=utf-8';
 const CSV_CACHE_CONTROL = 'public, max-age=3600';
+const CSV_NOINDEX = 'noindex';
 const CSV_MULTIPART_PART_SIZE = 8 * 1024 * 1024;
 
 const ARRAY_FILTERS = ['years', 'sectors', 'procedureGroups', 'kinds', 'types'] as const;
@@ -56,6 +57,7 @@ function hasSearchFilter(params: object): boolean {
 function markCsvCache(response: Response, cache: CsvCacheState): Response {
   const withSource = withDataSource(response);
   withSource.headers.set('X-Csv-Cache', cache);
+  withSource.headers.set('X-Robots-Tag', CSV_NOINDEX);
   return withSource;
 }
 
@@ -95,7 +97,10 @@ function responseFromR2Object(
 ) {
   if (!hasBody(obj)) {
     return markCsvCache(
-      new Response(null, { status: 304, headers: { ETag: obj.httpEtag } }),
+      new Response(null, {
+        status: 304,
+        headers: { ETag: obj.httpEtag, 'X-Robots-Tag': CSV_NOINDEX },
+      }),
       cache,
     );
   }
@@ -108,6 +113,7 @@ function responseFromR2Object(
     'Accept-Ranges': 'bytes',
     'Cache-Control': CSV_CACHE_CONTROL,
     'Content-Length': String(range?.length ?? obj.size),
+    'X-Robots-Tag': CSV_NOINDEX,
   });
   if (range) headers.set('Content-Range', `bytes ${range.start}-${range.end}/${obj.size}`);
 
