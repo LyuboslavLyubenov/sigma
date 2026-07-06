@@ -14,4 +14,6 @@
 | [0004](0004-style-src-unsafe-inline.md) | `style-src` запазва `'unsafe-inline'` (CSP) | Прието |
 | [0005](0005-blue-green-d1-rollback.md) | Blue/green D1 слотове за rollback на refresh | Прието |
 | [0006](0006-eop-wins-dedup.md) | Dedup на два източника: EOP печели по `contract_number` | Прието |
+| [0007](0007-privacy-masking.md) | `noindex` + маскиране на естествено-личностни идентификатори в машинно-четим изход (Issue #173) | Прието |
+| [0008](0008-centralized-x-robots-tag-worker.md) | Централизирано авторство на `X-Robots-Tag: noindex` в worker-а (маркерният договор) | Прието |
 | [0029](0029-worker-native-fx-load.md) | Worker-native FX зареждане в cron refresh-а и режим на отказ | Прието |
