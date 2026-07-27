@@ -113,7 +113,7 @@ beforeEach(() => {
 });
 
 describe('company.data loader — natural-person branch', () => {
-  it('returns a Response carrying X-Privacy-Mask: applied with company.eik === null (behaviors 1 + 2)', async () => {
+  it('masks only the ЕИК (sensitive ID), keeps the public trading displayName, and marks noindex (behaviors 1 + 2)', async () => {
     const natural = makeCompany({ legalForm: 'ЕТ', displayName: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ' });
     installStubs(natural);
 
@@ -127,7 +127,12 @@ describe('company.data loader — natural-person branch', () => {
     const body = (await response.json()) as {
       company: { eik: string | null; displayName: string };
     };
+    // ЕИК is the sensitive natural-person identifier → masked.
     expect(body.company.eik).toBeNull();
+    // displayName is the PUBLIC trading name, rendered verbatim on the HTML page; the `.data` twin
+    // is React Router's single-fetch transport for client navigations (NOT a standalone export like
+    // /contracts/:id.json), so the name must stay verbatim or client-rendered pages break. Only the
+    // ЕИК is masked. This locks the policy decision recorded in ADR-0007 §3 + PR #183 review.
     expect(body.company.displayName).toBe('ЕТ ДРИФТ - НИКОЛАЙ КИРОВ');
   });
 });

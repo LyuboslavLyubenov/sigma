@@ -68,11 +68,24 @@ export async function loader({ params, context }: Route.LoaderArgs) {
       getEntityNetwork(db, { kind: 'company', id }, { includeCenterOptions: false }),
     ]);
     if (!company) throw new Response('Not Found', { status: 404 });
-    // Single-fetch `.data` twin shares this loader with the HTML response, so we mask here once
-    // and signal the worker via the internal `X-Privacy-Mask` marker. The mutation clears the
-    // natural person's ЕИК on the returned object (covers `.data`); the marker is translated into
-    // `X-Robots-Tag: noindex` by `hardenResponse` in `apps/web/workers/app.ts`. Legal-entity
-    // records keep the plain-object return (no marker, no mutation).
+    // Privacy policy for the company profile (ADR-0007 §3, decision recorded in PR #183 review):
+    // the trading `displayName` is PUBLIC — it is rendered verbatim on the HTML page
+    // (`<PageHeader title={c.displayName}>`, breadcrumbs, `<title>`) and is the same string a
+    // visitor sees. The sensitive natural-person identifier is the ЕИК, which we mask here.
+    //
+    // The `.data` turbo-stream twin is NOT a standalone machine-readable export (unlike
+    // `/contracts/:id.json` or the CSV exports, which DO mask the name). It is React Router v7's
+    // single-fetch transport for client-side navigations: when a user clicks a `<Link to="/companies/…">`
+    // the browser fetches `.data` and re-renders the SAME HTML page from `company.displayName`.
+    // Masking the name in `.data` would therefore make client-rendered pages show
+    // `MASKED_NATURAL_PERSON_LABEL` — breaking the legitimate user-facing HTML view that ADR-0007
+    // explicitly preserves. Only the ЕИК (the sensitive ID) is masked, consistently across both the
+    // HTML and `.data` representations. The whole response is marked `noindex` regardless.
+    //
+    // The mutation clears the natural person's ЕИК on the returned object (covers `.data`); the
+    // `X-Privacy-Mask` marker is translated into `X-Robots-Tag: noindex` by `hardenResponse` in
+    // `apps/web/workers/app.ts`. Legal-entity records keep the plain-object return (no marker, no
+    // mutation).
     if (isNaturalPersonBidder(company.displayName, company.legalForm)) {
       company.eik = null;
       return Response.json(
