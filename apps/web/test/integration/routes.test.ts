@@ -21,8 +21,9 @@
 // Each test sets a distinct `CF-Connecting-IP` so the per-IP rate limiters
 // (CSV/SEARCH/AGG/ASSISTANT) get an independent bucket — no test trips a 429.
 //
-// The proxy is bootstrapped by `./global-setup.ts` (vitest globalSetup); the `caches` polyfill
-// is installed by `./polyfills.ts` (vitest setupFiles). This file only adds the route assertions.
+// The proxy is bootstrapped lazily by `./setup.ts:appFetch()` (per vitest worker); the `caches`
+// polyfill is installed by `./polyfills.ts` (vitest setupFiles). This file only adds the route
+// assertions.
 
 import { describe, expect, it } from 'vitest';
 import { appFetch } from './setup';
@@ -90,7 +91,7 @@ describe('routes — header contract (issue #94)', () => {
   });
 
   it('GET /contracts/1', async () => {
-    // contractIdFromSlug('1') → 'c:1', which the global-setup fixture seeds.
+    // contractIdFromSlug('1') → 'c:1', which the setup.ts fixture seeds.
     const res = await get('/contracts/1', '203.0.113.16');
     expect(res.status).toBe(200);
     assertCommonSecurity(res);

@@ -40,7 +40,7 @@
 // for a crawler to consume. The two suites are intentionally isolated so a body
 // regression does not get buried in the larger header suite's output.
 //
-// The proxy is bootstrapped by `./global-setup.ts` (vitest globalSetup); the `caches`
+// The proxy is bootstrapped lazily by `./setup.ts:appFetch()` (per vitest worker); the `caches`
 // polyfill is installed by `./polyfills.ts` (vitest setupFiles). This file only adds
 // the body-shape assertions.
 
