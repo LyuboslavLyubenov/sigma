@@ -100,7 +100,8 @@ function responseFromR2Object(
       status: 304,
       headers: { ETag: obj.httpEtag },
     });
-    markPrivacyMaskApplied(response304.headers);
+    // `markCsvCache` (below) stamps the privacy mask on the final headers — the single source of
+    // truth for the marker on every CSV path. Do not call `markPrivacyMaskApplied` here as well.
     return markCsvCache(response304, cache);
   }
 
@@ -114,8 +115,9 @@ function responseFromR2Object(
     'Content-Length': String(range?.length ?? obj.size),
   });
   if (range) headers.set('Content-Range', `bytes ${range.start}-${range.end}/${obj.size}`);
-  markPrivacyMaskApplied(headers);
 
+  // `markCsvCache` stamps the privacy mask on the final headers — the single source of truth for the
+  // marker on every CSV path. Do not call `markPrivacyMaskApplied` here as well (was a duplicate call).
   return markCsvCache(new Response(obj.body, { status: range ? 206 : 200, headers }), cache);
 }
 
