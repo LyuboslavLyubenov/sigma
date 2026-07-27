@@ -331,4 +331,49 @@ describe('streamContractsCsv masking', () => {
     expect(rows[1]![6]).toBe('999999999');
     expect(rows[1]![7]).toBe('consortium');
   });
+
+  // Regression for PR #183 review T-006: `isNaturalPersonBidder`'s docstring delegates consortium
+  // filtering to the caller, but `streamContractsCsv` invoked it WITHOUT a `bidder_kind ===
+  // 'consortium'` guard. A consortium whose `bidder_name` starts with „ЕТ " (a lead member that is a
+  // sole trader, e.g. „ЕТ Иван Петров; Строй ООД") or whose `legal_form` collides with a sole-trader
+  // form was masked as a natural person — privacy-safe (over-masking) but a behavioral change that
+  // drops the lead member's name + ЕИК and contradicts the predicate's contract. Consortium rows now
+  // bypass the natural-person mask and keep the „… и др." shape from `entityName`.
+  it('does not mask a consortium row whose lead member looks like a sole trader (ЕТ name / sole-trader legal_form)', async () => {
+    const db = csvDb([
+      makeCsvRow({
+        id: 'c:et-led-consortium',
+        rowid: 1,
+        bidder_name: 'ЕТ Иван Петров; Строй ООД',
+        bidder_kind: 'consortium',
+        bidder_legal_form: 'ЕТ',
+        contractor_eik: '201345678',
+      }),
+    ]);
+
+    const rows = parseCsv(await streamContractsCsv(db, {}).text());
+
+    expect(rows[1]![5]).toBe('ЕТ Иван Петров и др.');
+    expect(rows[1]![6]).toBe('201345678');
+    expect(rows[1]![7]).toBe('consortium');
+  });
+
+  it('does not mask a consortium row matched only by the leading-ЕТ name heuristic (legal_form null)', async () => {
+    const db = csvDb([
+      makeCsvRow({
+        id: 'c:et-named-consortium',
+        rowid: 1,
+        bidder_name: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ; Логистика АД',
+        bidder_kind: 'consortium',
+        bidder_legal_form: null,
+        contractor_eik: '201345678',
+      }),
+    ]);
+
+    const rows = parseCsv(await streamContractsCsv(db, {}).text());
+
+    expect(rows[1]![5]).toBe('ЕТ ДРИФТ - НИКОЛАЙ КИРОВ и др.');
+    expect(rows[1]![6]).toBe('201345678');
+    expect(rows[1]![7]).toBe('consortium');
+  });
 });

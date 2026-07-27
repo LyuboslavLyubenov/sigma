@@ -311,6 +311,59 @@ describe('streamCompaniesCsv masking', () => {
     const header = csv.trim().split('\n')[0];
     expect(header).toBe('eik,name,kind,settlement,won_eur,contracts,authorities,primary_sector');
   });
+
+  // Regression for PR #183 review T-006 (companies mirror of the contracts bug): a consortium whose
+  // name / legal_form collides with a sole-trader signal was masked as a natural person. `kind` must
+  // take precedence so a JV keeps its name + ЕИК. The maskingDb() above only seeds `company` rows, so
+  // we build a dedicated fixture here.
+  it('does not mask a consortium row whose lead member looks like a sole trader (ЕТ name / sole-trader legal_form)', async () => {
+    const consortiumRows: CompanyTotalsRow[] = [
+      {
+        bidder_id: 'eik:201345678',
+        name: 'ЕТ Иван Петров; Строй ООД',
+        kind: 'consortium',
+        ownership_kind: null,
+        eik: '201345678',
+        eik_valid: 1,
+        settlement: 'Пловдив',
+        won_eur: 900,
+        contracts: 1,
+        authorities: 1,
+        primary_sector: '45',
+        eu_eur: 0,
+        first_date: '2024-03-01',
+        last_date: '2024-03-02',
+        legal_form: 'ЕТ',
+      },
+    ];
+    const db: D1Database = {
+      prepare(sql: string) {
+        let bound: unknown[] = [];
+        return {
+          bind(...args: unknown[]) {
+            bound = args;
+            return this;
+          },
+          async all<T>() {
+            if (sql.includes('ORDER BY bidder_id')) {
+              const afterId = bound.at(-2) as string;
+              return { results: consortiumRows.filter((r) => r.bidder_id > afterId) as T[] };
+            }
+            return { results: consortiumRows as T[] };
+          },
+          async first<T>() {
+            return { n: consortiumRows.length } as T;
+          },
+        };
+      },
+    } as unknown as D1Database;
+
+    const csv = await streamCompaniesCsv(db, {}).text();
+    const [eik, name, kind] = parseLine(csv.trim().split('\n')[1]);
+    expect(name).toBe('ЕТ Иван Петров; Строй ООД');
+    expect(eik).toBe('201345678');
+    expect(kind).toBe('consortium');
+  });
 });
 
 describe('prototype-key params (untrusted query values)', () => {

@@ -267,7 +267,11 @@ export function streamCompaniesCsv(db: D1Database, p: CompanyListParams): Respon
       }
       let block = '';
       for (const r of results) {
-        const isNatural = isNaturalPersonBidder(cleanName(r.name), r.legal_form);
+        // `isNaturalPersonBidder`'s docstring delegates consortium filtering to the caller (a JV is a
+        // legal entity even if a lead member's name / legal_form looks like a sole trader). Guard with
+        // `kind` first so a consortium such as „ЕТ Иван Петров; Строй ООД" is NOT masked as a natural
+        // person — it keeps its name + ЕИК. Mirrors the guard in streamContractsCsv (PR #183 T-006).
+        const isNatural = r.kind !== 'consortium' && isNaturalPersonBidder(cleanName(r.name), r.legal_form);
         const name = isNatural ? MASKED_NATURAL_PERSON_LABEL : r.name;
         const eik = isNatural ? '' : r.eik;
         block +=
