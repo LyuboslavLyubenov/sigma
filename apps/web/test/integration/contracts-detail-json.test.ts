@@ -34,7 +34,7 @@
 // the loader wrapper instead of the bare record) would not be caught by the
 // header-only suite.
 //
-// The proxy is bootstrapped by `./global-setup.ts` (vitest globalSetup); the
+// The proxy is bootstrapped lazily by `./setup.ts:appFetch()` (per vitest worker); the
 // `caches` polyfill is installed by `./polyfills.ts` (vitest setupFiles). This
 // file only adds the contract-detail assertions.
 

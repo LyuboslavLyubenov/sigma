@@ -72,11 +72,30 @@ function csvRequest(ip: string): Request {
 }
 
 async function assertCsvNonRateLimitedResponse(res: Response, label: string): Promise<void> {
+  // Hard floor: calls 1-10 must NOT have been consumed by the CSV rate-limit gate. Asserting this
+  // FIRST — independent of the 200/500 body shape — means a rate-limit leak (e.g. a regression that
+  // trips the gate early) fails loudly here even if the body happens to resemble the dev-mode 500
+  // (PR #177 review T-010).
+  expect(
+    res.status,
+    `[sigma/test/rate-limit] ${label} must NOT be 429 — the CSV rate-limit bucket holds 10 tokens and this call is within the first 10. A 429 here is a rate-limit gate regression.`,
+  ).not.toBe(429);
+
   const body = await res.text();
 
   if (res.status === 200) return;
 
   if (res.status === 500) {
+    // The 500 is accepted ONLY as the documented dev-mode `devalue` artifact (ADR-0002 deferred
+    // the streaming-CSV end-to-end assertion to a future @cloudflare/vitest-pool-workers or
+    // pre-built-mode migration; see contracts-csv.test.ts for the full rationale). To keep a real
+    // route regression from hiding behind the same status, pin BOTH the prefix and the devalue
+    // error class, and assert we are in DEV — in a prod/pre-built lane a 500 here is a regression,
+    // not a tolerated outcome.
+    expect(
+      import.meta.env.DEV,
+      `[sigma/test/rate-limit] ${label} a 500 is tolerated only in DEV mode (the devalue artifact). In a prod/pre-built lane a 500 is a real route regression (ADR-0002 deferred item).`,
+    ).toBe(true);
     expect(
       body.startsWith(DEV_MODE_500_BODY_PREFIX),
       `[sigma/test/rate-limit] ${label} dev-mode 500 body must start with "${DEV_MODE_500_BODY_PREFIX}" — got first 200 chars: ${JSON.stringify(body.slice(0, 200))}`,

@@ -1,48 +1,111 @@
 // Shared SQL helpers and fixture statements for the integration-test lane.
 //
-// Both `setup.ts` (per-test lazy bootstrap) and `global-setup.ts` (vitest
-// `globalSetup`, runs once per process) need to apply the same D1 migrations
-// and seed the same fixture rows. The two files used to inline ~60 lines of
-// duplicated SQL helpers + constants; keeping them in lockstep was a manual
-// chore and a drift hazard. This module owns the shared definition.
+// `setup.ts` (per-test lazy bootstrap in each vitest worker) applies the D1 migrations and seeds
+// the fixture rows from these constants. (A vitest `globalSetup` used to do the same on a proxy no
+// test reads; it was removed as redundant in PR #177 review T-003. This module remains the single
+// source of truth for the SQL helpers + fixture rows so they cannot drift.)
 //
 // Static `INSERT OR IGNORE` statements are safe to run in any order; the
 // `buildContractsInsert(n)` builder interpolates only computed integers and
 // ISO dates, so there is no SQL-injection surface.
 
+/**
+ * Split a DDL / seed SQL file into individual statements: strip `--` line comments, split on `;`,
+ * and collapse runs of whitespace outside string literals.
+ *
+ * Comment stripping and whitespace collapsing are STRING-AWARE: a `--` inside a single/double-
+ * quoted string literal (`'a--b'`) is NOT treated as a comment start, and significant whitespace
+ * inside a string literal is preserved. Only the DDL the integration lane ships today is safe
+ * under the simpler per-line variant, but a future migration or seed row containing `'a--b'` or
+ * multi-space strings would be silently corrupted by it (PR #177 review T-004). This single-pass
+ * char scanner tracks in-string state across all three operations so they cannot desynchronize.
+ *
+ * The scanner is intentionally minimal: it does NOT honour SQL block comments (`/* … *\/`,
+ * absent from the migration files) or escaped quote doubling (`''`), neither of which appear in
+ * the shipped DDL/fixture SQL. Add those only if a future migration needs them.
+ */
 export function stripSqlCommentsAndCollapse(raw: string): string[] {
-  const stripped = raw
-    .split('\n')
-    .map((l) => {
-      const idx = l.indexOf('--');
-      return idx === -1 ? l : l.slice(0, idx).trimEnd();
-    })
-    .filter((l) => !l.trim().startsWith('--'))
-    .join('\n');
   const statements: string[] = [];
   let buf = '';
   let inString = false;
   let stringChar: string | null = null;
-  for (const ch of stripped) {
+
+  for (let i = 0; i < raw.length; i++) {
+    const ch = raw[i]!;
+
+    // Inside a string literal: copy verbatim until the matching closing quote. Nothing inside is
+    // treated as a comment, a statement separator, or collapsible whitespace.
     if (inString) {
       buf += ch;
+      if (ch === stringChar) inString = false;
+      continue;
+    }
+
+    // `--` line comment (only when NOT in a string): skip to end of line without copying.
+    if (ch === '-' && raw[i + 1] === '-') {
+      while (i < raw.length && raw[i] !== '\n') i++;
+      continue;
+    }
+
+    // String literal start: enter string mode and copy the quote.
+    if (ch === "'" || ch === '"') {
+      inString = true;
+      stringChar = ch;
+      buf += ch;
+      continue;
+    }
+
+    // Statement separator (only when NOT in a string): flush the buffered statement.
+    if (ch === ';') {
+      const collapsed = collapseWhitespaceOutsideStrings(buf.trim());
+      if (collapsed) statements.push(collapsed);
+      buf = '';
+      continue;
+    }
+
+    buf += ch;
+  }
+
+  const tail = collapseWhitespaceOutsideStrings(buf.trim());
+  if (tail) statements.push(tail);
+  return statements;
+}
+
+/**
+ * Collapse runs of whitespace into a single space, but ONLY outside single/double-quoted string
+ * literals. Significant whitespace inside a string (`'a   b'`) is preserved verbatim. Used to
+ * normalise DDL indentation/newlines after comment stripping without corrupting string payloads.
+ */
+function collapseWhitespaceOutsideStrings(s: string): string {
+  let out = '';
+  let inString = false;
+  let stringChar: string | null = null;
+  let prevWasOutsideStringWhitespace = false;
+
+  for (const ch of s) {
+    if (inString) {
+      out += ch;
       if (ch === stringChar) inString = false;
       continue;
     }
     if (ch === "'" || ch === '"') {
       inString = true;
       stringChar = ch;
-    }
-    if (ch === ';') {
-      const t = buf.trim();
-      if (t) statements.push(t.replace(/\s+/g, ' ').trim());
-      buf = '';
+      out += ch;
+      prevWasOutsideStringWhitespace = false;
       continue;
     }
-    buf += ch;
+    if (ch === ' ' || ch === '\t' || ch === '\n' || ch === '\r') {
+      if (!prevWasOutsideStringWhitespace) {
+        out += ' ';
+        prevWasOutsideStringWhitespace = true;
+      }
+      continue;
+    }
+    out += ch;
+    prevWasOutsideStringWhitespace = false;
   }
-  if (buf.trim()) statements.push(buf.trim().replace(/\s+/g, ' '));
-  return statements;
+  return out.trim();
 }
 
 export function buildContractsInsert(n: number): string {
