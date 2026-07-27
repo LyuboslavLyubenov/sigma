@@ -21,31 +21,72 @@ import { fileURLToPath } from 'node:url';
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
 const require = createRequire(import.meta.url);
 
+const OTEL_STORE_ENTRY_PREFIX = '@opentelemetry+api@';
+
+/**
+ * Pure helper: given the raw `.pnpm/` directory entries and the version `@opentelemetry/api` resolves
+ * to in the app's dependency tree, return the store entry name that matches that version — falling
+ * back to the highest semver present when no exact match exists. Pure (no FS) so it is unit-testable.
+ *
+ * Why prefer the exact app version over "highest semver": if pnpm ever hoists two versions of
+ * `@opentelemetry/api`, the old `.find()` picked the FIRST entry after a descending sort — which can
+ * differ from the version the app actually imports, silently aliasing the wrong build. Matching the
+ * resolved version removes that nondeterminism (PR #177 review T-001).
+ */
+export function pickOtelStoreEntry(
+  entries: readonly string[],
+  appVersion: string | null,
+): string | null {
+  const versions = entries
+    .filter((e) => e.startsWith(OTEL_STORE_ENTRY_PREFIX))
+    .map((e) => ({ entry: e, version: e.slice(OTEL_STORE_ENTRY_PREFIX.length) }));
+  if (versions.length === 0) return null;
+
+  // Exact match on the semver core (ignoring the `_…` peer-dep hash) wins — that is the version the
+  // app imports, so its build/esm is the correct alias target.
+  if (appVersion) {
+    const exact = versions.find((v) => compareSemverDesc(v.version, appVersion) === 0);
+    if (exact) return exact.entry;
+  }
+  // Fallback: highest semver core (deterministic; same input → same output).
+  return [...versions].sort((a, b) => compareSemverDesc(a.version, b.version))[0]!.entry;
+}
+
 function resolveOtelEsmRoot(): string {
   try {
     return path.join(path.dirname(require.resolve('@opentelemetry/api/package.json')), 'build/esm');
   } catch {
     // Fallback: when `require.resolve` fails (e.g. pnpm hoisting put the package
-    // under a non-default path), walk the pnpm store and pick the highest-versioned
-    // `@opentelemetry/api` directory. A deterministic semver-aware sort guarantees
-    // the same input always resolves to the same output, even if the store ever
-    // hoists more than one version of the package.
+    // under a non-default path), walk the pnpm store. Match the version the app depends on first
+    // (read from apps/web/package.json), falling back to the highest semver present — both
+    // deterministic (PR #177 review T-001).
     const pnpmStore = path.join(repoRoot, 'node_modules/.pnpm');
-    const candidates = readdirSync(pnpmStore)
-      .filter((entry) => entry.startsWith('@opentelemetry+api@'))
-      .map((entry) => {
-        const version = entry.slice('@opentelemetry+api@'.length);
-        return { entry, version };
-      })
-      .sort((a, b) => compareSemverDesc(a.version, b.version))
-      .map(({ entry }) => path.join(pnpmStore, entry, 'node_modules/@opentelemetry/api'))
-      .find((candidate) => existsSync(path.join(candidate, 'build/esm')));
-
-    if (!candidates) {
+    const entries = readdirSync(pnpmStore);
+    const appVersion = readOtelAppVersion();
+    const entry = pickOtelStoreEntry(entries, appVersion);
+    if (!entry) {
       throw new Error('Unable to resolve @opentelemetry/api build/esm directory for integration tests');
     }
+    const candidate = path.join(pnpmStore, entry, 'node_modules/@opentelemetry/api');
+    if (!existsSync(path.join(candidate, 'build/esm'))) {
+      throw new Error(`Resolved @opentelemetry/api store entry has no build/esm: ${entry}`);
+    }
+    return path.join(candidate, 'build/esm');
+  }
+}
 
-    return path.join(candidates, 'build/esm');
+/** Read the `@opentelemetry/api` version the app declares, or null if absent/unreadable. */
+function readOtelAppVersion(): string | null {
+  try {
+    // eslint-disable-next-line @typescript-eslint/no-require-imports
+    const pkg = require('./package.json') as { dependencies?: Record<string, string> };
+    const spec = pkg.dependencies?.['@opentelemetry/api'];
+    if (!spec) return null;
+    // Strip leading semver range operators (^/~/>=/exact) to get a comparable core.
+    const core = spec.replace(/^[~^>=<\s]+/, '').split(' ').pop() ?? '';
+    return core || null;
+  } catch {
+    return null;
   }
 }
 
