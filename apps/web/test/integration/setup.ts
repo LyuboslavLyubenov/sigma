@@ -12,13 +12,14 @@
 //      so other test files (or the same suite via vitest workers) can reuse it
 //      without re-importing.
 //   4. The wrangler proxy (env + ctx) is bootstrapped lazily here on the first
-//      `appFetch()` call: vitest runs each test file in its own worker thread,
-//      so a proxy stashed by `globalSetup` on a single globalThis is NOT visible
-//      to every test file. Lazy per-file bootstrap is cheap (one proxy per
-//      worker process) and avoids cross-worker cross-talk. The
-//      `./global-setup.ts` (when wired in the vitest config) still runs and
-//      still seeds the proxy on `globalThis.__SIGMA_PROXY__` — if it happens to
-//      be set in this worker process, we reuse it instead of booting twice.
+//      `appFetch()` call. Vitest runs each test file in its own worker thread,
+//      so there is intentionally NO vitest `globalSetup`: a single proxy stashed
+//      on one process's `globalThis` is NOT visible to other worker threads.
+//      Lazy per-file bootstrap is cheap (one proxy per worker process), avoids
+//      cross-worker cross-talk, and removes the redundant seeding a globalSetup
+//      would do on a proxy no test reads (PR #177 review T-003). The
+//      `globalThis.__SIGMA_PROXY__` stash below is a per-worker memoisation:
+//      within one worker, repeated `appFetch()` calls reuse the same proxy.
 
 import { readFileSync } from 'node:fs';
 import wrangler from 'wrangler';
@@ -48,7 +49,9 @@ let appPromise: Promise<WorkerApp> | null = null;
 let proxyPromise: Promise<SigmaProxy> | null = null;
 
 async function bootstrapProxy(): Promise<SigmaProxy> {
-  // Honour whatever the vitest `globalSetup` set on this worker process, if it ran here.
+  // Reuse the per-worker memoised proxy if `appFetch()` already booted one in this worker process.
+  // (There is no vitest globalSetup — see the file header — so this only ever hits this worker's
+  // own stash from a previous `bootstrapProxy()` call, not a cross-process seed.)
   const existing = globalThis.__SIGMA_PROXY__;
   if (existing) return existing;
 

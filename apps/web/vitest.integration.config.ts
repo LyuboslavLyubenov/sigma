@@ -5,8 +5,11 @@
 //
 // Wired plugins: reactRouter() — resolves virtual:react-router/server-build.
 // Wired setupFiles: ./test/integration/polyfills.ts — installs workerd `caches` polyfill.
-// Wired globalSetup: ./test/integration/global-setup.ts — boots proxy + applies migrations
-//                                                           + seeds fixture + disposes.
+//
+// No `globalSetup`: each test file bootstraps its own wrangler proxy lazily via
+// `./test/integration/setup.ts:appFetch()` (see that file for why a single globalSetup proxy is
+// not visible to vitest's per-file worker processes). Wiring a globalSetup that seeds a proxy no
+// test reads was pure overhead, so it was removed (PR #177 review T-003).
 import { defineConfig } from 'vitest/config';
 import { reactRouter } from '@react-router/dev/vite';
 import tailwindcss from '@tailwindcss/vite';
@@ -47,9 +50,13 @@ function resolveOtelEsmRoot(): string {
 }
 
 /**
- * Compare two pnpm-store version strings, descending. Handles plain semver
- * (`1.9.1`) and pnpm's `<semver>(<peer-deps-hash>)` flavour by stripping the
- * suffix before comparing the numeric core.
+ * Compare two pnpm-store directory version segments, descending. The entries under
+ * `node_modules/.pnpm/` are keyed as `<name>@<version>` where `<version>` is either plain semver
+ * (`@opentelemetry+api@1.9.1`) or semver followed by a `_`-delimited peer-dep hash
+ * (`vitest@4.1.7_@opentelemetry+api@1.9.1_@types+node@...`). `core()` strips the `_…` peer-dep
+ * tail before comparing the numeric semver core so the sort is deterministic regardless of which
+ * flavour a given entry uses (PR #177 review T-007: the old comment described a `(hash)` parens
+ * flavour that does not occur in store dir names, only in resolved package.json deps).
  */
 function compareSemverDesc(a: string, b: string): number {
   const core = (s: string) => s.replace(/_.*$/, '');
@@ -85,15 +92,19 @@ export default defineConfig({
   ssr: {
     noExternal: ['@opentelemetry/api', 'ai', '@ai-sdk/openai'],
   },
-  server: {
-    deps: {
-      inline: [/^@opentelemetry\/api/, /^@ai-sdk/, /^ai/, /^@sigma\//],
-    },
-  },
+  // Note: there is intentionally NO top-level `server.deps.inline`. `vitest run` reads
+  // `test.server.deps.inline` (below); the top-level `server` block configures Vite's dev
+  // server, which is not involved when running tests. Defining the same list in both places
+  // was duplicated config that could drift (PR #177 review T-005, "NO CODE DUPLICATION").
   test: {
     name: 'integration',
     environment: 'node',
     include: ['test/integration/**/*.test.ts'],
+    // `include` is already scoped to `test/integration/**`, so the unit tests under `app/**` and
+    // `workers/**` can never be picked up here. The exclude list is kept as a defensive safety net:
+    // if a future `include` widening (or a glob accident) ever let a worker test slip in, this list
+    // blocks it from running twice — once in the unit lane and once here. Without the comment it
+    // read as dead config (PR #177 review T-006, "NO DEAD CODE").
     exclude: [
       'app/**/*.test.ts',
       'workers/csv-rate-limit.test.ts',
@@ -108,7 +119,6 @@ export default defineConfig({
       'workers/http.test.ts',
     ],
     setupFiles: ['./test/integration/polyfills.ts'],
-    globalSetup: ['./test/integration/global-setup.ts'],
     server: {
       deps: {
         inline: [/^@opentelemetry\/api/, /^@ai-sdk/, /^ai/, /^@sigma\//],

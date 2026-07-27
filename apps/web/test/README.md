@@ -9,8 +9,12 @@ apps/web/test/
 └── integration/
     ├── polyfills.ts          vitest setupFile — инсталира in-memory CacheStorage на globalThis.caches
     │                          (workers/app.ts чете caches.default at module init)
-    ├── global-setup.ts       vitest globalSetup — буута wrangler proxy, прилага миграциите, засява фикстурата
-    ├── setup.ts              appFetch(request): Promise<Response> — основният helper за integration тестовете
+    ├── setup.ts              appFetch(request): Promise<Response> — основният helper за integration тестовете.
+    │                          Буути wrangler proxy, прилага миграциите и засява фикстурата ЛЕНИ на първата
+    │                          appFetch() заявка във всеки vitest worker (няма vitest globalSetup — виж
+    │                          коментара в setup.ts защо proxy от globalSetup не е видим за worker-ите).
+    ├── helpers/fixtures.ts   споделени SQL хелпъри + FIXTURE_STATEMENTS (string-aware comment strip)
+    ├── helpers/fixtures.test.ts  unit тестове за helpers/fixtures.ts (string-aware SQL parsing)
     ├── helpers/headers.ts    тънки vitest assertion хелпъри (assertCommonSecurity, assertHtmlContentType,
     │                          assertEdgeCacheFirstRequest, …)
     ├── routes.test.ts        13 маршрута от issue #94 (header contract: status + security + cache headers)
@@ -161,7 +165,7 @@ describe('GET /some-route — body shape', () => {
 
 ### 4. Кога D1 фикстурата не стига
 
-`apps/web/test/integration/global-setup.ts` засява (декларациите на фикстурата + SQL хелпърите за прилагане на миграциите са изнесени в `helpers/fixtures.ts`, за да се споделят и от `setup.ts` — вижте `helpers/fixtures.ts:FIXTURE_STATEMENTS`):
+`apps/web/test/integration/setup.ts` засява при първата `appFetch()` заявка във всеки vitest worker (декларациите на фикстурата + SQL хелпърите за прилагане на миграциите са изнесени в `helpers/fixtures.ts` — вижте `helpers/fixtures.ts:FIXTURE_STATEMENTS`):
 
 - 1 authority (`auth:BG000000000`), 1 bidder (`eik:BG000000001`), 1 tender (`t:FIX-1`).
 - 30 договора в `contracts` със строго намалящ `amount_eur` (за pagination regression).
@@ -172,7 +176,7 @@ describe('GET /some-route — body shape', () => {
 Ако новият ви тест има нужда от повече данни (например 200 договора, за да тества пейджнация на 3 страници), имате два избора:
 
 - **Локално в `beforeAll` на конкретния тест** — извикайте `proxy.env.DB.exec(...)` с нов `INSERT OR IGNORE` и след това добавете колоните/редовете, от които тестът има нужда. Proxy-то се bootstrap-ва лениво в `setup.ts:getProxy()`, така че в `beforeAll` вече е наличен на `globalThis.__SIGMA_PROXY__`.
-- **Глобално в `global-setup.ts`** — добавете новите редове към `FIXTURE_*` списъка + инкрементация на броя в `buildContractsInsert(n)`. Направете го, ако фикстурата е полезна за повече от един тест.
+- **Глобално в `helpers/fixtures.ts`** — добавете новите редове към `FIXTURE_*` списъка + инкрементация на броя в `buildContractsInsert(n)`. Направете го, ако фикстурата е полезна за повече от един тест.
 
 ### 5. Когато тестът се нуждае от нов binding/поле
 
@@ -180,7 +184,7 @@ describe('GET /some-route — body shape', () => {
 
 1. Редактирайте `wrangler.jsonc`.
 2. Пуснете `pnpm --filter @sigma/web cf-typegen` за да се обнови `worker-configuration.d.ts` (`Env` типът).
-3. Ако използвате нови `Env` полета в `setup.ts`/`global-setup.ts`, добавете typecast или тип изявление в новите редове.
+3. Ако използвате нови `Env` полета в `setup.ts`, добавете typecast или тип изявление в новите редове.
 4. Пуснете `pnpm --filter @sigma/web typecheck` — `wrangler types && react-router typegen && tsc -b`.
 
 ## Чеклист за PR

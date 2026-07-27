@@ -94,7 +94,7 @@ function csvRequest(ip: string): Request {
 }
 
 describe('GET /contracts.csv — header contract + defensive body shape (issue #94 / A5)', () => {
-  it('first request: status is 200 OR dev-mode 500 (deferred), and the worker reaches the route', async () => {
+  it('first request: reaches the route with the mode-determined outcome (200 in prod-shape, dev devalue 500 only in DEV)', async () => {
     const res = await appFetch(csvRequest('203.0.113.60'));
 
     // The request must reach the worker. A 4xx other than 500 (e.g. 401, 403,
@@ -119,6 +119,29 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
     // `X-Edge-Cache: BYPASS`. We whitelist MISS|BYPASS to tolerate a future
     // change that introduces a per-route s-maxage.
     assertEdgeCacheFirstRequest(res);
+
+    // Mode-determined outcome (PR #177 review T-002): the old `200 || 500` disjunction was a
+    // "cheater" assertion — a regression that made /contracts.csv always 500 in production would
+    // still leave the suite green. Gate the expected outcome on the build mode so each branch is
+    // asserted deterministically:
+    //   - DEV (this lane runs through vite-node + react-router dev, which serialises resource
+    //     route Responses through `devalue`): the documented devalue 500 is the expected outcome.
+    //     A 500 whose body is NOT the devalue artifact (e.g. a real route regression) fails here.
+    //   - PROD / pre-built (a future migration to @cloudflare/vitest-pool-workers or a pre-built
+    //     mode): the 200 production path is the contract, and a 500 fails here.
+    // The branch taken in THIS lane is DEV, so the devalue-500 body shape is asserted below.
+    const isDev = import.meta.env.DEV;
+    if (isDev) {
+      expect(
+        res.status,
+        '[sigma/test/csv] in DEV mode /contracts.csv must return the documented devalue 500 (a 200 here means the dev-mode devalue path changed and the branch below needs updating); any non-500 status is a route regression.',
+      ).toBe(500);
+    } else {
+      expect(
+        res.status,
+        '[sigma/test/csv] in a prod/pre-built mode /contracts.csv must return 200; a 500 here is a real route regression (the dev-mode devalue artifact must not escape into a pre-built lane).',
+      ).toBe(200);
+    }
 
     // Inspect the route-specific headers + body shape.
     const body = await res.text();
@@ -193,7 +216,7 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
     // Defensive: the CSV rate-limit gate (`workers/app.ts:96`) is the FIRST
     // gate, before the request handler. A regression that moved the gate to
     // e.g. 1 req / 60s would surface here as 429 instead of the expected
-    // 200|500 outcome. We use a unique IP (`203.0.113.61`) so the 10-token
+    // mode-determined outcome. We use a unique IP (`203.0.113.61`) so the 10-token
     // quota is fresh and the gate cannot be exhausted by a sibling test.
     const res = await appFetch(csvRequest('203.0.113.61'));
 
@@ -202,11 +225,13 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
       '[sigma/test/csv] first request from a fresh IP must NOT be 429 (rate-limit gate regression) — got 429. The CSV rate-limit is 10 req / 60s and this is the first call from this IP.',
     ).not.toBe(429);
 
-    // Also pin the outcome shape so a future change to react-router's dev-mode
-    // error envelope is caught here too.
+    // Pin the mode-determined outcome (PR #177 review T-002): in DEV the devalue 500 is expected;
+    // in a prod/pre-built lane the 200 contract holds. A status outside the mode's expectation is
+    // a route regression, not a tolerated alternative.
+    const expectedStatus = import.meta.env.DEV ? 500 : 200;
     expect(
-      res.status === 200 || res.status === 500,
-      `[sigma/test/csv] /contracts.csv must return 200 or 500 on first call from fresh IP — got ${res.status}`,
-    ).toBe(true);
+      res.status,
+      `[sigma/test/csv] first call from a fresh IP must reach the route and return the mode-determined outcome (${expectedStatus} in ${import.meta.env.DEV ? 'DEV' : 'PROD'}) — got ${res.status}.`,
+    ).toBe(expectedStatus);
   });
 });
