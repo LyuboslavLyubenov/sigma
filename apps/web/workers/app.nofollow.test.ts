@@ -92,6 +92,44 @@ vi.mock('react-router', () => ({
       });
     }
 
+    // MAJOR 3 (PR #183 review): the contract detail `.data` twin. The handler returns the SAME shape
+    // the real `contract.tsx` loader now produces for a sole-trader contract — the marker is set by
+    // the loader (`markPrivacyMaskApplied`), the body carries the masked ЕИК (`bidder.eik === null`),
+    // and the content-type is RRv7's single-fetch `text/x-script`. This drives the REAL worker
+    // `fetch` → `handleRequest` → `hardenResponse` → `applyPrivacyMaskHeaders` pipeline, proving the
+    // loader-set marker actually reaches `X-Robots-Tag: noindex` on the final `.data` HTTP response
+    // (the gap the review named: the existing fixtures injected the marker by hand, which only proves
+    // the worker CAN translate a marker, not that a real loader's marker survives the pipeline).
+    if (path === '/contracts/sole-trader.data') {
+      return new Response(
+        'turbo-stream-{"contract":{"bidder":{"eik":null,"name":"ЕТ ДРИФТ - НИКОЛАЙ КИРОВ"}}}',
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/x-script',
+            'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+            'X-Privacy-Mask': 'applied',
+          },
+        },
+      );
+    }
+
+    if (path === '/contracts/legal-entity.data') {
+      // MAJOR 3 negative fixture: a legal-entity contract `.data` twin. The loader's legal-entity
+      // branch returns a plain object with the ЕИК intact and NO marker — the worker must NOT
+      // synthesise `X-Robots-Tag` (the marker is required for the translation, never path-based).
+      return new Response(
+        'turbo-stream-{"contract":{"bidder":{"eik":"121817309","name":"СОФАРМА ТРЕЙДИНГ АД"}}}',
+        {
+          status: 200,
+          headers: {
+            'Content-Type': 'text/x-script',
+            'Cache-Control': 'public, s-maxage=3600, stale-while-revalidate=86400',
+          },
+        },
+      );
+    }
+
     return new Response('not found', { status: 404 });
   },
 }));
@@ -314,6 +352,75 @@ describe('app.ts hardenResponse — natural-person `.data` flow (F2 / T-008)', (
     expect(response.headers.get('X-Robots-Tag')).toBeNull();
     expect(response.headers.has('X-Privacy-Mask')).toBe(false);
     // Legal-entity payload keeps the EIK intact — the worker must not invent a noindex policy.
+    expect(body).toContain('"eik":"121817309"');
+
+    const cached = getCachedHeaders(url);
+    expect(cached).not.toBeNull();
+    expect(cached!.get('X-Robots-Tag')).toBeNull();
+    expect(cached!.has('X-Privacy-Mask')).toBe(false);
+  });
+});
+
+// MAJOR 3 (PR #183 review): end-to-end proof that a loader-set `X-Privacy-Mask` marker actually
+// reaches `X-Robots-Tag: noindex` on the contract detail `.data` twin through the REAL worker
+// pipeline (fetch → handleRequest → hardenResponse → applyPrivacyMaskHeaders → edgeCache.put). The
+// review's concern: the marker-based design depends on the loader's marker surviving to the HTTP
+// response, and the prior fixtures injected the marker by hand in the stubbed handler — which only
+// proves the worker CAN translate a marker, not that a real loader's marker does. These cases drive
+// `worker.fetch` directly so the genuine `hardenResponse` runs; the handler returns the exact shape
+// `contract.tsx`'s masked loader branch now produces (MAJOR 2). This closes the "green tests, hidden
+// gap" risk for the most-indexable surface.
+describe('app.ts hardenResponse — contract detail `.data` marker→noindex through the real pipeline (MAJOR 3)', () => {
+  it('drives a masked sole-trader /contracts/<x>.data to X-Robots-Tag: noindex, marker stripped, masked body preserved', async () => {
+    const url = 'https://x/contracts/sole-trader.data';
+    const { response, edge, body } = await fetchAndSettle(url);
+
+    expect(edge).toBe('MISS');
+    expect(response.headers.get('Content-Type')).toBe('text/x-script');
+    // The loader-set marker reached the worker and was translated — the core forwarding guarantee.
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+    expect(response.headers.has('X-Privacy-Mask')).toBe(false);
+    // The masked payload (ЕИК nulled) survived the pipeline byte-for-byte.
+    expect(body).toContain('"eik":null');
+    expect(body).toContain('ЕТ ДРИФТ');
+  });
+
+  it('caches the post-hardening Response — the .data entry carries X-Robots-Tag: noindex, no marker', async () => {
+    const url = 'https://x/contracts/sole-trader.data';
+    await fetchAndSettle(url);
+
+    // The cached copy is what `edgeCache.put(key, hardened.clone())` stored AFTER translation. The
+    // HIT path will serve these headers verbatim without re-running the marker translation — the
+    // cache-safety invariant for the contract `.data` surface.
+    const cached = getCachedHeaders(url);
+    expect(cached).not.toBeNull();
+    expect(cached!.get('X-Robots-Tag')).toBe('noindex');
+    expect(cached!.get('Content-Type')).toBe('text/x-script');
+    expect(cached!.has('X-Privacy-Mask')).toBe(false);
+  });
+
+  it('a second /contracts/<x>.data request HITs and serves X-Robots-Tag: noindex verbatim', async () => {
+    const url = 'https://x/contracts/sole-trader.data';
+    const first = await fetchAndSettle(url);
+    expect(first.edge).toBe('MISS');
+    expect(first.response.headers.get('X-Robots-Tag')).toBe('noindex');
+
+    const second = await fetchAndSettle(url);
+    expect(second.edge).toBe('HIT');
+    expect(second.response.headers.get('X-Robots-Tag')).toBe('noindex');
+    expect(second.response.headers.has('X-Privacy-Mask')).toBe(false);
+    expect(second.body).toContain('"eik":null');
+  });
+
+  it('does NOT emit X-Robots-Tag for a legal-entity contract `.data` request without a marker', async () => {
+    const url = 'https://x/contracts/legal-entity.data';
+    const { response, edge, body } = await fetchAndSettle(url);
+
+    expect(edge).toBe('MISS');
+    expect(response.headers.get('Content-Type')).toBe('text/x-script');
+    expect(response.headers.get('X-Robots-Tag')).toBeNull();
+    expect(response.headers.has('X-Privacy-Mask')).toBe(false);
+    // Legal-entity contract keeps the ЕИК — the worker must not invent a noindex policy.
     expect(body).toContain('"eik":"121817309"');
 
     const cached = getCachedHeaders(url);
