@@ -19,11 +19,19 @@ function safeJson(value: unknown): string {
  * replaced by the canonical masking label when `isNaturalPersonBidder(name, bidderLegalForm)`
  * matches. Returns the input by reference when the record identifies a legal entity, so callers
  * can use reference equality to decide whether to set the noindex header.
+ *
+ * The `record.bidder.kind === 'consortium'` guard mirrors the CSV streamer
+ * (`bidder_kind !== 'consortium' && isNaturalPersonBidder(...)` in contracts.ts:459): a JV whose
+ * first member is a sole trader has a display name beginning "ЕТ …", so `isNaturalPersonBidder`
+ * alone would over-mask the consortium to "Частно лице" — losing the "… и др." shape and the
+ * consortium ЕИК. `isNaturalPersonBidder`'s docstring explicitly delegates consortium filtering
+ * to the caller; the guard here is that caller (PR #183 review, MAJOR 1).
  */
 export function maskContractForPrivacy(
   record: ContractRecord & { bidder_legal_form: string | null },
   bidderLegalForm: string | null,
 ): ContractRecord {
+  if (record.bidder.kind === 'consortium') return record;
   if (!isNaturalPersonBidder(record.bidder.name, bidderLegalForm)) return record;
   return {
     ...record,

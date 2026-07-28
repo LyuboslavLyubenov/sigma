@@ -137,6 +137,69 @@ describe('maskContractForPrivacy', () => {
     expect(masked.bidder.name).toBe(MASKED_NATURAL_PERSON_LABEL);
     expect(masked.sourceNames.bidder).toBe(MASKED_NATURAL_PERSON_LABEL);
   });
+
+  it('does NOT mask a consortium whose first member is a sole trader (kind=consortium guard)', () => {
+    // Real-world shape: a JV whose display name begins with "ЕТ " because the first member is a sole
+    // trader ("ЕТ Иван Петров; Строй ООД"). The CSV streamer already gates this with `bidder_kind !==
+    // 'consortium'` (contracts.ts:459); the JSON masker must apply the same guard so a consortium is
+    // never over-masked to "Частно лице" — it keeps the "… и др." shape, the consortium ЕИК, and no
+    // noindex. This is the parity case the PR #183 review (MAJOR 1) flagged as missing here.
+    const consortium = makeRecord({
+      bidder: {
+        slug: 'bidder-consortium',
+        name: 'ЕТ Иван Петров; Строй ООД',
+        displayName: 'ЕТ Иван Петров и др.',
+        kind: 'consortium',
+        typeLabel: null,
+        settlement: 'Sofia',
+        eik: '200000000',
+        sector: null,
+        totalContracts: 3,
+        totalEur: 5000,
+      },
+      sourceNames: {
+        authority: 'Some Authority',
+        bidder: 'ЕТ Иван Петров; Строй ООД',
+      },
+    });
+    consortium.bidder_legal_form = null; // name-based heuristic is what would otherwise match
+
+    const masked = maskContractForPrivacy(consortium, consortium.bidder_legal_form);
+    // Reference equality = not masked → caller will NOT set the noindex marker.
+    expect(masked).toBe(consortium);
+    expect(masked.bidder.eik).toBe('200000000');
+    expect(masked.bidder.name).toBe('ЕТ Иван Петров; Строй ООД');
+    expect(masked.bidder.displayName).toBe('ЕТ Иван Петров и др.');
+    expect(masked.sourceNames.bidder).toBe('ЕТ Иван Петров; Строй ООД');
+  });
+
+  it('does NOT mask a consortium whose legal_form matches a sole-trader form (kind=consortium guard)', () => {
+    // Belt-and-braces: even when `legal_form` is literally "ЕТ", a consortium must be exempt — the
+    // `kind` signal is authoritative over the name/legal_form heuristic for JV entities.
+    const consortium = makeRecord({
+      bidder: {
+        slug: 'bidder-consortium',
+        name: 'ЕТ Петров; ВИСТА ООД',
+        displayName: 'ЕТ Петров и др.',
+        kind: 'consortium',
+        typeLabel: null,
+        settlement: null,
+        eik: '200000001',
+        sector: null,
+        totalContracts: 2,
+        totalEur: 3000,
+      },
+      sourceNames: {
+        authority: 'Some Authority',
+        bidder: 'ЕТ Петров; ВИСТА ООД',
+      },
+    });
+    consortium.bidder_legal_form = 'ЕТ';
+
+    const masked = maskContractForPrivacy(consortium, consortium.bidder_legal_form);
+    expect(masked).toBe(consortium);
+    expect(masked.bidder.eik).toBe('200000001');
+  });
 });
 
 describe('contract.json loader', () => {
@@ -210,6 +273,40 @@ describe('contract.json loader', () => {
     expect(response.headers.get('X-Robots-Tag')).toBeNull();
     const body = (await response.json()) as { error: string };
     expect(body).toEqual({ error: 'not_found' });
+  });
+
+  it('does NOT set the privacy marker for a consortium whose first member is a sole trader (behavior 5)', async () => {
+    // Loader-level proof of the MAJOR 1 guard: reference-equality from maskContractForPrivacy must
+    // propagate to the marker decision, so a consortium gets NO X-Privacy-Mask (→ no X-Robots-Tag).
+    const consortium = makeRecord({
+      bidder: {
+        slug: 'bidder-consortium',
+        name: 'ЕТ Иван Петров; Строй ООД',
+        displayName: 'ЕТ Иван Петров и др.',
+        kind: 'consortium',
+        typeLabel: null,
+        settlement: 'Sofia',
+        eik: '200000000',
+        sector: null,
+        totalContracts: 3,
+        totalEur: 5000,
+      },
+      sourceNames: {
+        authority: 'Some Authority',
+        bidder: 'ЕТ Иван Петров; Строй ООД',
+      },
+    });
+    consortium.bidder_legal_form = null;
+    vi.mocked(getContract).mockResolvedValueOnce(consortium);
+
+    const response = await loader(loaderArgs('c-consortium'));
+
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Privacy-Mask')).toBeNull();
+    expect(response.headers.get('X-Robots-Tag')).toBeNull();
+    const body = (await response.json()) as { bidder: { eik: string | null; name: string } };
+    expect(body.bidder.eik).toBe('200000000');
+    expect(body.bidder.name).toBe('ЕТ Иван Петров; Строй ООД');
   });
 
   it('preserves the public, s-maxage=3600 Cache-Control policy on the success branch (behavior 4)', async () => {
