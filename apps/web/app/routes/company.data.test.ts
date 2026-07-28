@@ -11,6 +11,7 @@ vi.mock('@sigma/db', () => ({
   getCompany: vi.fn(),
   getSpendingTrend: vi.fn(),
   getEntityNetwork: vi.fn(),
+  getDb: (env: unknown) => (env as { DB: unknown }).DB,
 }));
 
 vi.mock('../lib/coverage', async () => {

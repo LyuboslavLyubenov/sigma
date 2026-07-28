@@ -6,6 +6,7 @@ import { headers, loader } from './contract';
 
 vi.mock('@sigma/db', () => ({
   getContract: vi.fn(),
+  getDb: (env: unknown) => (env as { DB: unknown }).DB,
   contractIdFromSlug: (slug: string) => 'c:' + slug,
 }));
 
@@ -50,6 +51,7 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
     frameworkAwards: null,
     authority: {
       slug: 'auth-1',
+      orderingUnit: null,
       name: 'Some Authority',
       displayName: 'Some Authority',
       typeLabel: null,
@@ -61,6 +63,7 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
     },
     bidder: {
       slug: 'bidder-1',
+      orderingUnit: null,
       name: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ',
       displayName: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ',
       kind: 'company',
@@ -73,6 +76,7 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
     },
     lots: null,
     subcontractor: null,
+    amendments: [],
     sourceNames: { authority: 'Some Authority', bidder: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ' },
     bidder_legal_form: 'ЕТ',
     ...overrides,
@@ -119,6 +123,7 @@ describe('contract.data loader — natural-person bidder branch', () => {
     const consortium = makeRecord({
       bidder: {
         slug: 'bidder-consortium',
+        orderingUnit: null,
         name: 'ЕТ Иван Петров; Строй ООД',
         displayName: 'ЕТ Иван Петров и др.',
         kind: 'consortium',
@@ -148,6 +153,7 @@ describe('contract.data loader — legal-entity bidder branch', () => {
     const legal = makeRecord({
       bidder: {
         slug: 'bidder-2',
+        orderingUnit: null,
         name: 'СОФАРМА ТРЕЙДИНГ АД',
         displayName: 'СОФАРМА ТРЕЙДИНГ АД',
         kind: 'company',
