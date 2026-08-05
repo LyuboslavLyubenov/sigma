@@ -214,14 +214,14 @@ describe('contract.json loader', () => {
     vi.mocked(getContract).mockReset();
   });
 
-  it('masks a sole trader and sets X-Privacy-Mask: applied (behavior 1)', async () => {
+  it('masks a sole trader and sets X-Robots-Tag: noindex (behavior 1)', async () => {
     vi.mocked(getContract).mockResolvedValueOnce(makeRecord());
 
     const response = await loader(loaderArgs('c-1'));
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('X-Privacy-Mask')).toBe('applied');
-    expect(response.headers.get('X-Robots-Tag')).toBeNull();
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+    expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
     const body = (await response.json()) as {
       bidder: { eik: string | null; name: string; displayName: string };
       sourceNames: { bidder: string };

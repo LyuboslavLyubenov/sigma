@@ -4,14 +4,7 @@ import { contractIdFromSlug, getContract, getDb } from '@sigma/db';
 import type { Route } from './+types/contract.json';
 import { publicCache } from '../lib/cache';
 import { withDataSource } from '../lib/dataSource';
-import { markPrivacyMaskApplied } from '../lib/security';
-
-function safeJson(value: unknown): string {
-  return JSON.stringify(value)
-    .replace(/\u2028/g, '\\u2028')
-    .replace(/\u2029/g, '\\u2029')
-    .replace(/<\//g, '<\\/');
-}
+import { serializeJsonForScript } from '../lib/json-ld';
 
 /**
  * Pure natural-person mask for the `/contracts/:id.json` body. Returns a copy of `record` with
@@ -49,6 +42,16 @@ export function maskContractForPrivacy(
 }
 
 // Resource route: the assembled contract record as machine-readable JSON (/contracts/:id.json).
+//
+// Privacy: the natural-person masker (maskContractForPrivacy) zeros ЕИК and replaces the bidder
+// name with MASKED_NATURAL_PERSON_LABEL when the bidder is a sole-trader / natural person; the
+// noindex header is set in the same branch so search engines don't surface the masked identifier
+// either. Mirrors the CSV streamer's `bidder_kind !== 'consortium' && isNaturalPersonBidder(...)`
+// gate. JSON serialization uses the shared `serializeJsonForScript` (lib/json-ld.ts) so the
+// `<`/U+2028/U+2029 escaping is consistent with the JSON-LD data island in root.tsx and the two
+// can't drift. `X-Content-Type-Options: nosniff` is the MIME-sniffing guard — the worker sets it
+// globally (baseSecurityHeaders), and it is set explicitly here too so this resource route is safe
+// on its own, not only via the global layer.
 export async function loader({ params, context }: Route.LoaderArgs) {
   const id = (params.id ?? '').replace(/\.json$/, '');
   const record = await getContract(getDb(context.cloudflare.env), contractIdFromSlug(id));
@@ -56,8 +59,9 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   const masked = maskContractForPrivacy(record, record.bidder_legal_form);
   const headers = new Headers({
     'Content-Type': 'application/json; charset=utf-8',
+    'X-Content-Type-Options': 'nosniff',
     'Cache-Control': publicCache(3600),
   });
-  if (masked !== record) markPrivacyMaskApplied(headers);
-  return withDataSource(new Response(safeJson(masked), { headers }));
+  if (masked !== record) headers.set('X-Robots-Tag', 'noindex');
+  return withDataSource(new Response(serializeJsonForScript(masked), { headers }));
 }

@@ -2,6 +2,7 @@ import { Link } from 'react-router';
 import {
   count,
   isNaturalPersonBidder,
+  isNaturalPersonProfileName,
   longDate,
   money,
   moneyBare,
@@ -10,7 +11,7 @@ import {
   signedPct,
 } from '@sigma/shared';
 import { contractIdFromSlug, contractSlug, getContract, getDb } from '@sigma/db';
-import type { ContractDetail } from '@sigma/api-contract';
+import type { CohortBand, ContractDetail } from '@sigma/api-contract';
 import type { Route } from './+types/contract';
 import { Breadcrumbs } from '../components/Breadcrumbs';
 import { PageHeader } from '../components/PageHeader';
@@ -81,7 +82,7 @@ function AnnexDescription({ text }: { text: string | null }) {
 
 export function meta({ data, params, matches }: Route.MetaArgs) {
   const c = data?.contract;
-  return seoMeta({
+  const tags = seoMeta({
     matches,
     path: `/contracts/${contractSlug(contractIdFromSlug(params.id))}`,
     title: `${c?.subject ?? 'Договор'} — СИГМА`,
@@ -89,6 +90,15 @@ export function meta({ data, params, matches }: Route.MetaArgs) {
       ? `Договор по УНП ${c.unp} между ${c.authority.name} и ${c.bidder.displayName}.`
       : '',
   });
+  // GDPR/ЗЗЛД (#219 review): when the bidder is a sole-trader (ЕТ) / natural person, keep this contract
+  // page — which carries the „Сигнали за риск" box — out of search indexes, mirroring the noindex on
+  // sole-trader company profiles (company.tsx) and their exclusion from the sitemap. The contract stays
+  // fully public on the site; only search-engine amplification of a named individual + risk label is
+  // avoided.
+  if (c && isNaturalPersonProfileName(c.bidder.displayName)) {
+    tags.push({ name: 'robots', content: 'noindex' });
+  }
+  return tags;
 }
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
@@ -109,7 +119,7 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   const contract = await getContract(getDb(context.cloudflare.env), contractIdFromSlug(params.id));
   if (!contract) throw new Response('Not Found', { status: 404 });
 
-  // Privacy policy for the contract detail page (ADR-0007 §6, decision recorded in PR #183 review):
+  // Privacy policy for the contract detail page (ADR-0033 §6, decision recorded in PR #183 review):
   // the trading `displayName` is PUBLIC, the ЕИК is the sensitive natural-person identifier. This
   // is the MOST-indexable surface — `robots.txt` does not block `/contracts/:id` (or its `.data`
   // twin), and the contract page is among the most-visited. Masking + signalling in the shared
@@ -131,10 +141,24 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   return { contract };
 }
 
+// Coarse cohort bands only (never a fake-precise "топ 4.7%") - @sigma/db cohortBand only claims a
+// fine band when the cohort is large enough and its percentiles are distinct (see cohort.ts).
+const COHORT_BAND_LABELS: Record<CohortBand, string> = {
+  top1: 'в най-горния 1% по стойност',
+  top5: 'в топ 5% по стойност',
+  top10: 'в топ 10% по стойност',
+  top25: 'в топ 25% по стойност',
+  'above-median': 'над медианата',
+  'at-median': 'около медианата',
+  'below-median': 'под медианата',
+  bottom25: 'сред най-ниските 25% по стойност',
+};
+
 const UNVERIFIED_VALUE_LABEL = 'стойност с непотвърдена достоверност';
 
 export default function Contract({ loaderData }: Route.ComponentProps) {
   const c = loaderData.contract;
+  const cohort = c.cohort;
   const v = c.value;
   const crumbId = c.unp || c.contractNumber || c.id;
   // Direct links to the day's raw ЦАИС ЕОП open-data files (storage.eop.bg) this record was
@@ -394,6 +418,34 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
         </Section>
 
         <RiskIndicators contract={c} />
+
+        {cohort && (
+          <Section
+            id="similar"
+            title="Подобни договори"
+            hint="Стойността спрямо всички договори с чиста стойност в същия CPV сектор в базата."
+          >
+            <p>
+              <strong>{money(cohort.amountEur)}</strong> е{' '}
+              <strong>{COHORT_BAND_LABELS[cohort.band]}</strong> сред{' '}
+              {count(cohort.stats.pricedContracts)}{' '}
+              {plural(cohort.stats.pricedContracts, 'договор', 'договора')} в сектор „
+              {c.sector?.short ?? `CPV ${cohort.stats.division}`}“ (CPV {cohort.stats.division}).
+              Медианата за сектора е <strong>{money(cohort.stats.medianEur)}</strong>.
+            </p>
+            <p className="small muted">
+              Приблизителна позиция по предизчислени персентили на сектора, включващи и самия този
+              договор. Сравнението дава контекст на мащаба и не е оценка за нередност - голяма
+              поръчка може да е напълно обоснована. Използва различен метод от отчета за аномалии,
+              затова числата може леко да се разминават.
+            </p>
+            <p className="small muted">
+              <Link to={`/contracts?sector=${cohort.stats.division}&sort=value-desc`}>
+                Виж договорите в сектора →
+              </Link>
+            </p>
+          </Section>
+        )}
 
         <Section id="facts" title="Подробности">
           <FactsList

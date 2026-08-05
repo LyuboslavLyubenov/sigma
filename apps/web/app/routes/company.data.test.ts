@@ -133,7 +133,7 @@ describe('company.data loader — natural-person branch', () => {
     // displayName is the PUBLIC trading name, rendered verbatim on the HTML page; the `.data` twin
     // is React Router's single-fetch transport for client navigations (NOT a standalone export like
     // /contracts/:id.json), so the name must stay verbatim or client-rendered pages break. Only the
-    // ЕИК is masked. This locks the policy decision recorded in ADR-0007 §3 + PR #183 review.
+    // ЕИК is masked. This locks the policy decision recorded in ADR-0033 §3 + PR #183 review.
     expect(body.company.displayName).toBe('ЕТ ДРИФТ - НИКОЛАЙ КИРОВ');
   });
 });
