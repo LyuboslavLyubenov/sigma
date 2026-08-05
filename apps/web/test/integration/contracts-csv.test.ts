@@ -74,15 +74,13 @@
 
 import { describe, expect, it } from 'vitest';
 import { appFetch } from './setup';
-import {
-  assertCommonSecurity,
-  assertEdgeCacheFirstRequest,
-} from './helpers/headers';
+import { assertCommonSecurity, assertEdgeCacheFirstRequest } from './helpers/headers';
 
 const BASE = 'https://sigma.test';
 const CSV_PATH = '/contracts.csv';
 
-const EXPECTED_CSV_HEADER = 'id,unp,subject,authority,authority_eik,contractor,contractor_eik,kind,sector_code,procedure,signed_at,value_eur,eu_funded,bids_received';
+const EXPECTED_CSV_HEADER =
+  'id,unp,subject,authority,authority_eik,contractor,contractor_eik,kind,sector_code,procedure,signed_at,value_eur,eu_funded,bids_received';
 
 const DEV_MODE_500_BODY_PREFIX = 'Unexpected Server Error';
 const DEV_MODE_500_BODY_TOKEN = 'DevalueError';
@@ -183,13 +181,14 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
       // The CSV `Content-Type` is `text/csv; charset=utf-8` (set by
       // `apps/web/app/lib/csv-export.ts:CSV_CONTENT_TYPE`). The match is
       // case-insensitive and tolerates a future charset tweak.
-      expect(res.headers.get('Content-Type')?.toLowerCase()).toMatch(
-        /^text\/csv(?:\s|;|$)/,
-      );
+      expect(res.headers.get('Content-Type')?.toLowerCase()).toMatch(/^text\/csv(?:\s|;|$)/);
 
       // The CSV `Content-Disposition` is `attachment; filename="sigma-contracts.csv"`.
       const cd = res.headers.get('Content-Disposition');
-      expect(cd, '[sigma/test/csv] 200 must carry `Content-Disposition: attachment; filename="sigma-contracts.csv"` — got null').not.toBeNull();
+      expect(
+        cd,
+        '[sigma/test/csv] 200 must carry `Content-Disposition: attachment; filename="sigma-contracts.csv"` — got null',
+      ).not.toBeNull();
       expect(cd!.toLowerCase()).toContain('attachment');
       expect(cd!.toLowerCase()).toContain('sigma-contracts.csv');
 
