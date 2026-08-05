@@ -597,38 +597,63 @@ describe('servedCsvExport privacy', () => {
 
     it('MISS (contracts): marks exactly once', async () => {
       const r2 = new InMemoryR2();
-      await serve(r2, vi.fn(() => csvResponse()), { route: 'contracts' });
+      await serve(
+        r2,
+        vi.fn(() => csvResponse()),
+        { route: 'contracts' },
+      );
       expect(markSpy).toHaveBeenCalledTimes(1);
     });
 
     it('HIT (companies): marks exactly once', async () => {
       const r2 = new InMemoryR2();
-      await (await serve(r2, vi.fn(() => csvResponse()), { route: 'companies' })).text();
+      await (
+        await serve(
+          r2,
+          vi.fn(() => csvResponse()),
+          { route: 'companies' },
+        )
+      ).text();
       markSpy.mockClear();
-      await serve(r2, vi.fn(() => csvResponse('hit\n')), { route: 'companies' });
+      await serve(
+        r2,
+        vi.fn(() => csvResponse('hit\n')),
+        { route: 'companies' },
+      );
       expect(markSpy).toHaveBeenCalledTimes(1);
     });
 
     it('dynamic (authorities, filtered): marks exactly once', async () => {
       const r2 = new InMemoryR2();
-      await serve(r2, vi.fn(() => csvResponse('filtered\n')), {
-        route: 'authorities',
-        params: { sort: 'value-desc', q: 'foo' },
-      });
+      await serve(
+        r2,
+        vi.fn(() => csvResponse('filtered\n')),
+        {
+          route: 'authorities',
+          params: { sort: 'value-desc', q: 'foo' },
+        },
+      );
       expect(markSpy).toHaveBeenCalledTimes(1);
     });
 
     it('304 (conditional GET on a primed object): marks exactly once', async () => {
       const r2 = new InMemoryR2();
-      const primed = await serve(r2, vi.fn(() => csvResponse()));
+      const primed = await serve(
+        r2,
+        vi.fn(() => csvResponse()),
+      );
       const etag = primed.headers.get('ETag');
       await primed.text();
       markSpy.mockClear();
-      await serve(r2, vi.fn(() => csvResponse('hit\n')), {
-        request: new Request('http://local/contracts.csv', {
-          headers: { 'If-None-Match': etag ?? '' },
-        }),
-      });
+      await serve(
+        r2,
+        vi.fn(() => csvResponse('hit\n')),
+        {
+          request: new Request('http://local/contracts.csv', {
+            headers: { 'If-None-Match': etag ?? '' },
+          }),
+        },
+      );
       expect(markSpy).toHaveBeenCalledTimes(1);
     });
   });

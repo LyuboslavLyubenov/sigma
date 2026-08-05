@@ -76,6 +76,7 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
     },
     lots: null,
     subcontractor: null,
+    cohort: null,
     amendments: [],
     sourceNames: { authority: 'Some Authority', bidder: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ' },
     bidder_legal_form: 'ЕТ',
