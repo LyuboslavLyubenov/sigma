@@ -24,23 +24,17 @@ describe('stripSqlCommentsAndCollapse', () => {
   // rest of the literal (plus everything after) was silently dropped. A future migration or seed
   // row containing `'a--b'` would be corrupted. Comment stripping must be string-aware.
   it('does NOT treat -- inside a single-quoted string literal as a comment (string-aware strip)', () => {
-    const statements = stripSqlCommentsAndCollapse(
-      `INSERT INTO t (v) VALUES ('a--b');`,
-    );
+    const statements = stripSqlCommentsAndCollapse(`INSERT INTO t (v) VALUES ('a--b');`);
     expect(statements).toEqual([`INSERT INTO t (v) VALUES ('a--b')`]);
   });
 
   it('does NOT treat -- inside a double-quoted identifier/string as a comment', () => {
-    const statements = stripSqlCommentsAndCollapse(
-      `INSERT INTO t (v) VALUES ("a--b");`,
-    );
+    const statements = stripSqlCommentsAndCollapse(`INSERT INTO t (v) VALUES ("a--b");`);
     expect(statements).toEqual([`INSERT INTO t (v) VALUES ("a--b")`]);
   });
 
   it('still strips a real trailing comment that follows a closed string literal', () => {
-    const statements = stripSqlCommentsAndCollapse(
-      `INSERT INTO t (v) VALUES ('keep'); -- drop me`,
-    );
+    const statements = stripSqlCommentsAndCollapse(`INSERT INTO t (v) VALUES ('keep'); -- drop me`);
     expect(statements).toEqual([`INSERT INTO t (v) VALUES ('keep')`]);
   });
 
@@ -48,9 +42,7 @@ describe('stripSqlCommentsAndCollapse', () => {
   // significant whitespace inside string literals. Seed data with deliberate multi-space strings
   // must survive intact.
   it('preserves significant whitespace inside a single-quoted string literal', () => {
-    const statements = stripSqlCommentsAndCollapse(
-      `INSERT INTO t (v) VALUES ('a   b');`,
-    );
+    const statements = stripSqlCommentsAndCollapse(`INSERT INTO t (v) VALUES ('a   b');`);
     expect(statements).toEqual([`INSERT INTO t (v) VALUES ('a   b')`]);
   });
 });

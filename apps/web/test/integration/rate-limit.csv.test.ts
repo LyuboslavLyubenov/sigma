@@ -135,7 +135,10 @@ describe('CSV export rate limit — 11× burst (issue #94 / A3)', { concurrent: 
       }
     }
 
-    expect(eleventh, '[sigma/test/rate-limit] expected 11th response to be captured').not.toBeNull();
+    expect(
+      eleventh,
+      '[sigma/test/rate-limit] expected 11th response to be captured',
+    ).not.toBeNull();
     expect(eleventh!.status).toBe(429);
     expect(eleventh!.headers.get('Retry-After')).toBe('60');
     expect(eleventh!.headers.get('Content-Type')).toContain('text/plain');
@@ -165,9 +168,15 @@ describe('CSV export rate limit — 11× burst (issue #94 / A3)', { concurrent: 
       }
     }
 
-    expect(firstResponse, '[sigma/test/rate-limit] expected first response to be captured').not.toBeNull();
+    expect(
+      firstResponse,
+      '[sigma/test/rate-limit] expected first response to be captured',
+    ).not.toBeNull();
 
-    expect(eleventh, '[sigma/test/rate-limit] expected 11th response to be captured').not.toBeNull();
+    expect(
+      eleventh,
+      '[sigma/test/rate-limit] expected 11th response to be captured',
+    ).not.toBeNull();
     expect(eleventh!.status).toBe(429);
     expect(eleventh!.headers.get('Retry-After')).toBe('60');
     expect(eleventh!.headers.get('Content-Type')).toContain('text/plain');
