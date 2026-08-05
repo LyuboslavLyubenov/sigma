@@ -73,7 +73,9 @@ describe('edge cache — first-request MISS|BYPASS contract (issue #94 / A6)', (
   it('GET / — first request takes the MISS or BYPASS branch (HIT coverage stays in workers/app.cache.test.ts)', async () => {
     const res = await get('/', '203.0.113.70');
 
-    expect(res.status, `[sigma/test/edge-cache] GET / must return 200 — got ${res.status}`).toBe(200);
+    expect(res.status, `[sigma/test/edge-cache] GET / must return 200 — got ${res.status}`).toBe(
+      200,
+    );
 
     assertCommonSecurity(res);
     assertHtmlContentType(res);
@@ -89,7 +91,10 @@ describe('edge cache — first-request MISS|BYPASS contract (issue #94 / A6)', (
     // that the header is one of the two valid values.
     const res = await get('/search?q=foo', '203.0.113.71');
 
-    expect(res.status, `[sigma/test/edge-cache] GET /search?q=foo must return 200 — got ${res.status}`).toBe(200);
+    expect(
+      res.status,
+      `[sigma/test/edge-cache] GET /search?q=foo must return 200 — got ${res.status}`,
+    ).toBe(200);
 
     assertCommonSecurity(res);
     assertHtmlContentType(res);
@@ -103,7 +108,10 @@ describe('edge cache — first-request MISS|BYPASS contract (issue #94 / A6)', (
     // a regression that drops the X-Edge-Cache header entirely would fail.
     const res = await get('/sitemap.xml', '203.0.113.72');
 
-    expect(res.status, `[sigma/test/edge-cache] GET /sitemap.xml must return 200 — got ${res.status}`).toBe(200);
+    expect(
+      res.status,
+      `[sigma/test/edge-cache] GET /sitemap.xml must return 200 — got ${res.status}`,
+    ).toBe(200);
 
     assertCommonSecurity(res);
     assertSitemapContentType(res);
@@ -115,7 +123,10 @@ describe('edge cache — first-request MISS|BYPASS contract (issue #94 / A6)', (
     // `publicCache()` opt-in set. The worker sets `X-Edge-Cache: BYPASS`.
     const res = await get('/robots.txt', '203.0.113.73');
 
-    expect(res.status, `[sigma/test/edge-cache] GET /robots.txt must return 200 — got ${res.status}`).toBe(200);
+    expect(
+      res.status,
+      `[sigma/test/edge-cache] GET /robots.txt must return 200 — got ${res.status}`,
+    ).toBe(200);
 
     assertCommonSecurity(res);
     assertTextPlainContentType(res);

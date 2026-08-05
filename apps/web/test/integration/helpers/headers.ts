@@ -151,7 +151,10 @@ export function assertCommonSecurity(response: Response): void {
   // applies the per-request nonce-based CSP only in production (see
   // `apps/web/app/lib/security.ts` and `workers/app.ts`).
   const csp = h.get('Content-Security-Policy');
-  expect(csp, `[sigma/test/headers] Content-Security-Policy must be absent in the test lane for ${formatUrl(response)} — got ${JSON.stringify(csp)}`).toBeNull();
+  expect(
+    csp,
+    `[sigma/test/headers] Content-Security-Policy must be absent in the test lane for ${formatUrl(response)} — got ${JSON.stringify(csp)}`,
+  ).toBeNull();
 }
 
 // ---------------------------------------------------------------------------

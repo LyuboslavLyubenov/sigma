@@ -143,7 +143,11 @@ function expectMonotonicAscending(amounts: number[], label: string): void {
  * The cursor + page take precedence so we cannot accidentally follow a stale
  * `page` value if the test requester happened to set one.
  */
-function buildPage2Url(basePath: string, baseSearch: URLSearchParams, nextQuery: URLSearchParams): string {
+function buildPage2Url(
+  basePath: string,
+  baseSearch: URLSearchParams,
+  nextQuery: URLSearchParams,
+): string {
   const merged = new URLSearchParams(baseSearch);
   for (const [k, v] of nextQuery) merged.set(k, v);
   const s = merged.toString();
@@ -260,7 +264,10 @@ describe('contracts pagination — keyset cursor regression (issue #87)', () => 
     ).toHaveLength(15);
 
     const nextQuery = extractNextQuery(body);
-    expect(nextQuery, '[sigma/test/pagination] date-desc page 1 must emit a next anchor').not.toBeNull();
+    expect(
+      nextQuery,
+      '[sigma/test/pagination] date-desc page 1 must emit a next anchor',
+    ).not.toBeNull();
     expect(nextQuery!.get('cursor')).toMatch(/^after:/);
     expect(nextQuery!.get('page')).toBe('2');
   });

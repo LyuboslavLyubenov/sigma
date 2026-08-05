@@ -65,7 +65,9 @@ function resolveOtelEsmRoot(): string {
     const appVersion = readOtelAppVersion();
     const entry = pickOtelStoreEntry(entries, appVersion);
     if (!entry) {
-      throw new Error('Unable to resolve @opentelemetry/api build/esm directory for integration tests');
+      throw new Error(
+        'Unable to resolve @opentelemetry/api build/esm directory for integration tests',
+      );
     }
     const candidate = path.join(pnpmStore, entry, 'node_modules/@opentelemetry/api');
     if (!existsSync(path.join(candidate, 'build/esm'))) {
@@ -83,7 +85,11 @@ function readOtelAppVersion(): string | null {
     const spec = pkg.dependencies?.['@opentelemetry/api'];
     if (!spec) return null;
     // Strip leading semver range operators (^/~/>=/exact) to get a comparable core.
-    const core = spec.replace(/^[~^>=<\s]+/, '').split(' ').pop() ?? '';
+    const core =
+      spec
+        .replace(/^[~^>=<\s]+/, '')
+        .split(' ')
+        .pop() ?? '';
     return core || null;
   } catch {
     return null;
@@ -101,8 +107,12 @@ function readOtelAppVersion(): string | null {
  */
 function compareSemverDesc(a: string, b: string): number {
   const core = (s: string) => s.replace(/_.*$/, '');
-  const [aMajor, aMinor, aPatch] = core(a).split('.').map((n) => Number.parseInt(n, 10) || 0);
-  const [bMajor, bMinor, bPatch] = core(b).split('.').map((n) => Number.parseInt(n, 10) || 0);
+  const [aMajor, aMinor, aPatch] = core(a)
+    .split('.')
+    .map((n) => Number.parseInt(n, 10) || 0);
+  const [bMajor, bMinor, bPatch] = core(b)
+    .split('.')
+    .map((n) => Number.parseInt(n, 10) || 0);
   if (aMajor !== bMajor) return bMajor - aMajor;
   if (aMinor !== bMinor) return bMinor - aMinor;
   return bPatch - aPatch;
