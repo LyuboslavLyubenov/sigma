@@ -27,6 +27,8 @@ const migration6Path = resolve(root, 'packages/db/migrations/0006_amendment_rest
 const migration7Path = resolve(root, 'packages/db/migrations/0007_amendment_value_suspect.sql');
 // #306 provenance columns on served `amendments` — promote/refresh-slice write contract_number_raw + link_method.
 const migration8Path = resolve(root, 'packages/db/migrations/0008_amendment_provenance.sql');
+// #279/ADR-0033: refresh-slice.sql + normalize-raw.sql read interest_link_evidence, so 0009 must be applied too.
+const migration9Path = resolve(root, 'packages/db/migrations/0009_interest_link_evidence.sql');
 const stagingPath = resolve(root, 'scripts/work-staging-schema.sql');
 const derivePath = resolve(root, 'scripts/derive-amendments.sql');
 const normalizePath = resolve(root, 'scripts/normalize-raw.sql');
@@ -66,6 +68,7 @@ function withEtlDb(label: string, run: (dbPath: string) => void): void {
     readScript(dbPath, migration6Path);
     readScript(dbPath, migration7Path);
     readScript(dbPath, migration8Path);
+    readScript(dbPath, migration9Path);
     readScript(dbPath, stagingPath);
     run(dbPath);
   } finally {
