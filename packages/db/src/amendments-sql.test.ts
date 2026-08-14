@@ -16,6 +16,10 @@ import { AMENDMENTS_SQL } from './queries/details';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const migration0 = resolve(root, 'packages/db/migrations/0000_init.sql');
+// #305 Tier-2: AMENDMENTS_SQL selects am.value_restated, added to served amendments by this migration.
+const migration6 = resolve(root, 'packages/db/migrations/0006_amendment_restated.sql');
+// #305 residual: AMENDMENTS_SQL also selects am.value_suspect, added by this migration.
+const migration7 = resolve(root, 'packages/db/migrations/0007_amendment_value_suspect.sql');
 
 function sqlite(dbPath: string, sql: string): string {
   return execFileSync('sqlite3', [dbPath], { input: sql, encoding: 'utf8' });
@@ -65,6 +69,8 @@ function withDb<T>(fn: (dbPath: string) => T): T {
   const dbPath = resolve(dir, 'test.sqlite');
   try {
     readScript(dbPath, migration0);
+    readScript(dbPath, migration6);
+    readScript(dbPath, migration7);
     return fn(dbPath);
   } finally {
     rmSync(dir, { recursive: true, force: true });

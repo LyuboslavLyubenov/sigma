@@ -26,6 +26,9 @@ const root = resolve(dirname(fileURLToPath(import.meta.url)), '../../..');
 const schemaPath = resolve(root, 'packages/db/migrations/0000_init.sql');
 const migration2Path = resolve(root, 'packages/db/migrations/0002_current_value_currency.sql');
 const migration3Path = resolve(root, 'packages/db/migrations/0003_related_persons_foundation.sql');
+// #305 Tier-2: served amendments gained value_restated/value_treatment (promote + refresh-slice write them).
+const migration6Path = resolve(root, 'packages/db/migrations/0006_amendment_restated.sql');
+const migration7Path = resolve(root, 'packages/db/migrations/0007_amendment_value_suspect.sql');
 const stagingPath = resolve(root, 'scripts/work-staging-schema.sql');
 const derivePath = resolve(root, 'scripts/derive-amendments.sql');
 const promotePath = resolve(root, 'scripts/promote-amendments.sql');
@@ -60,6 +63,8 @@ function withEtlDb(label: string, run: (dbPath: string) => void): void {
     readScript(dbPath, schemaPath);
     readScript(dbPath, migration2Path);
     readScript(dbPath, migration3Path);
+    readScript(dbPath, migration6Path);
+    readScript(dbPath, migration7Path);
     readScript(dbPath, stagingPath);
     run(dbPath);
   } finally {
