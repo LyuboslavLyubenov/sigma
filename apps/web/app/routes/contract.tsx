@@ -119,7 +119,7 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   const contract = await getContract(getDb(context.cloudflare.env), contractIdFromSlug(params.id));
   if (!contract) throw new Response('Not Found', { status: 404 });
 
-  // Privacy policy for the contract detail page (ADR-0033 §6, decision recorded in PR #183 review):
+  // Privacy policy for the contract detail page (ADR-0036 §6, decision recorded in PR #183 review):
   // the trading `displayName` is PUBLIC, the ЕИК is the sensitive natural-person identifier. This
   // is the MOST-indexable surface — `robots.txt` does not block `/contracts/:id` (or its `.data`
   // twin), and the contract page is among the most-visited. Masking + signalling in the shared
@@ -253,7 +253,13 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
             <div className="vh now">
               <div className="step">Текуща стойност</div>
               <strong className="num">{v.currentEur != null ? money(v.currentEur) : '—'}</strong>
-              {v.suspect && <div className="sub suspect">{UNVERIFIED_VALUE_LABEL}</div>}
+              {v.currentValueDoubled ? (
+                <div className="sub suspect">
+                  стойността изглежда двойно отчетена и не се показва
+                </div>
+              ) : (
+                v.suspect && <div className="sub suspect">{UNVERIFIED_VALUE_LABEL}</div>
+              )}
               {v.deltaPct != null && (
                 <div className="delta">{signedPct(v.deltaPct)} спрямо сключване</div>
               )}
@@ -261,8 +267,10 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
           </div>
           {v.suspect && (
             <p className="small muted">
-              Показана е публикуваната стойност от източника, без СИГМА да я коригира. Виж{' '}
-              <Link to="/methodology">методология</Link>.
+              {v.currentValueDoubled
+                ? 'Текущата стойност изглежда двойно отчетена в източника и затова не се показва. '
+                : 'Показана е публикуваната стойност от източника, без СИГМА да я коригира. '}
+              Виж <Link to="/methodology">методология</Link>.
             </p>
           )}
           {c.frameworkAwards != null && (
@@ -298,11 +306,32 @@ export default function Contract({ loaderData }: Route.ComponentProps) {
                   {c.amendments.map((a, i) => (
                     <tr key={`${a.documentNumber ?? 'amd'}-${i}`}>
                       <td>{a.date ? longDate(a.date) : '—'}</td>
+                      {/* #305 residual: an uncorrectable double-count — the source's value_after is the
+                          untrusted doubled figure, so show „—" and mark the row rather than a number we
+                          can't stand behind. A `restated` row is the opposite: СИГМА corrected the doubled
+                          total from the основание text, so we show the corrected number and flag that we
+                          rewrote it. */}
                       <td className="money">
-                        {a.valueAfterEur != null ? moneyBare(a.valueAfterEur) : '—'}
+                        {a.suspect ? (
+                          <>
+                            — <Chip>непотвърден тотал</Chip>
+                          </>
+                        ) : a.valueAfterEur != null ? (
+                          <>
+                            {moneyBare(a.valueAfterEur)}
+                            {a.restated && (
+                              <>
+                                {' '}
+                                <Chip>коригиран тотал</Chip>
+                              </>
+                            )}
+                          </>
+                        ) : (
+                          '—'
+                        )}
                       </td>
                       <td className="money">
-                        {a.deltaEur != null ? signedMoney(a.deltaEur) : '—'}
+                        {!a.suspect && a.deltaEur != null ? signedMoney(a.deltaEur) : '—'}
                       </td>
                       <td className="annex-desc-cell">
                         <AnnexDescription text={a.description} />

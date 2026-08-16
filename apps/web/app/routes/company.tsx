@@ -68,7 +68,7 @@ export async function loader({ params, context }: Route.LoaderArgs) {
       getEntityNetwork(db, { kind: 'company', id }, { includeCenterOptions: false }),
     ]);
     if (!company) throw new Response('Not Found', { status: 404 });
-    // Privacy policy for the company profile (ADR-0033 §3, decision recorded in PR #183 review):
+    // Privacy policy for the company profile (ADR-0036 §3, decision recorded in PR #183 review):
     // the trading `displayName` is PUBLIC — it is rendered verbatim on the HTML page
     // (`<PageHeader title={c.displayName}>`, breadcrumbs, `<title>`) and is the same string a
     // visitor sees. The sensitive natural-person identifier is the ЕИК, which we mask here.
@@ -78,7 +78,7 @@ export async function loader({ params, context }: Route.LoaderArgs) {
     // single-fetch transport for client-side navigations: when a user clicks a `<Link to="/companies/…">`
     // the browser fetches `.data` and re-renders the SAME HTML page from `company.displayName`.
     // Masking the name in `.data` would therefore make client-rendered pages show
-    // `MASKED_NATURAL_PERSON_LABEL` — breaking the legitimate user-facing HTML view that ADR-0033
+    // `MASKED_NATURAL_PERSON_LABEL` — breaking the legitimate user-facing HTML view that ADR-0036
     // explicitly preserves. Only the ЕИК (the sensitive ID) is masked, consistently across both the
     // HTML and `.data` representations. The whole response is marked `noindex` regardless.
     //

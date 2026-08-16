@@ -1,6 +1,6 @@
 # Маскиране на естествени лица и `X-Robots-Tag: noindex` — ръководство за разработчици
 
-Това е оперативното ръководство за механиката зад политиката от [ADR-0033](adr/0033-privacy-masking.md) и решението за централизация от [ADR-0034](adr/0034-centralized-x-robots-tag-worker.md). За потребителското описание виж [`apps/web/app/routes/privacy.tsx`](../apps/web/app/routes/privacy.tsx) (`#natural-person-data`).
+Това е оперативното ръководство за механиката зад политиката от [ADR-0036](adr/0036-privacy-masking.md) и решението за централизация от [ADR-0037](adr/0037-centralized-x-robots-tag-worker.md). За потребителското описание виж [`apps/web/app/routes/privacy.tsx`](../apps/web/app/routes/privacy.tsx) (`#natural-person-data`).
 
 ## Как работи механиката
 
