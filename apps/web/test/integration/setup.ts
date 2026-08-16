@@ -23,7 +23,7 @@
 
 import { readFileSync } from 'node:fs';
 import wrangler from 'wrangler';
-import { MIG_0000, MIG_0001, MIG_0002, WRANGLER_JSONC } from './paths';
+import { MIG_0000, MIG_0001, MIG_0002, MIG_0006, MIG_0007, WRANGLER_JSONC } from './paths';
 import {
   buildContractsInsert,
   FIXTURE_STATEMENTS,
@@ -68,6 +68,12 @@ async function bootstrapProxy(): Promise<SigmaProxy> {
     await proxy.env.DB.exec(s);
   }
   for (const s of stripSqlCommentsAndCollapse(readFileSync(MIG_0002, 'utf8'))) {
+    await proxy.env.DB.exec(s);
+  }
+  for (const s of stripSqlCommentsAndCollapse(readFileSync(MIG_0006, 'utf8'))) {
+    await proxy.env.DB.exec(s);
+  }
+  for (const s of stripSqlCommentsAndCollapse(readFileSync(MIG_0007, 'utf8'))) {
     await proxy.env.DB.exec(s);
   }
   for (const stmt of [...FIXTURE_STATEMENTS, buildContractsInsert(30)]) {
