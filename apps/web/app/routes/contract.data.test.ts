@@ -47,6 +47,7 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
       currentEur: 1000,
       deltaPct: 0,
       suspect: false,
+      currentValueDoubled: false,
     },
     frameworkAwards: null,
     authority: {
