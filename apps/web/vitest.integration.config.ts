@@ -24,6 +24,26 @@ const require = createRequire(import.meta.url);
 const OTEL_STORE_ENTRY_PREFIX = '@opentelemetry+api@';
 
 /**
+ * Pull the first numeric semver core out of a dependency spec.
+ *
+ * Handles: exact pin (`1.9.1`), caret (`^1.9.1`), tilde (`~1.9.1`), range operators
+ * (`>=1.9.1`, `<2.0.0`), and compound ranges (`>=1.9.1 <2.0.0`). For a compound range the
+ * LOWER bound is returned because that is the version the app effectively pins against.
+ *
+ * Returns `null` when no semver core is present (e.g. `workspace:*`, `latest`, `file:…`,
+ * empty input). Pure (no FS) so it is unit-testable.
+ *
+ * Why this replaces the old `replace(/^[~^>=<\s]+/, '').split(' ').pop()`:
+ * `split(' ').pop()` returned the LAST whitespace-delimited token, so `">=1.9.1 <2.0.0"`
+ * collapsed to `<2.0.0`, then `compareSemverDesc` parsed `NaN → 0` and silently aliased
+ * the wrong `@opentelemetry/api` store entry (PR #177 review T-008).
+ */
+export function extractSemverCore(spec: string): string | null {
+  const match = spec.match(/\d+\.\d+\.\d+/);
+  return match ? match[0] : null;
+}
+
+/**
  * Pure helper: given the raw `.pnpm/` directory entries and the version `@opentelemetry/api` resolves
  * to in the app's dependency tree, return the store entry name that matches that version — falling
  * back to the highest semver present when no exact match exists. Pure (no FS) so it is unit-testable.
@@ -84,13 +104,7 @@ function readOtelAppVersion(): string | null {
     const pkg = require('./package.json') as { dependencies?: Record<string, string> };
     const spec = pkg.dependencies?.['@opentelemetry/api'];
     if (!spec) return null;
-    // Strip leading semver range operators (^/~/>=/exact) to get a comparable core.
-    const core =
-      spec
-        .replace(/^[~^>=<\s]+/, '')
-        .split(' ')
-        .pop() ?? '';
-    return core || null;
+    return extractSemverCore(spec);
   } catch {
     return null;
   }
