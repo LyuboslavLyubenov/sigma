@@ -75,13 +75,28 @@ function needsBase(p: CompanyListParams): boolean {
 /**
  * The FROM source: the rollup table, or a scoped base-aggregation CTE for sector/year/EU cross-cuts.
  * Keep consumed filter keys in sync with COMPANY_FILTER_KEYS and companyFilterSignature().
+ *
+ * `legalForm` controls whether the `b.legal_form AS legal_form` projection is added on the
+ * rollup subquery (the unfiltered path). Only the CSV streamer needs it (the natural-person
+ * masker keys off `r.legal_form`); the HTML list path maps rows through `toCompanyListItem`
+ * which drops it. The base-aggregation CTE (filtered path) always projects legal_form: it
+ * already does an INNER JOIN on `bidders b` for the grouping, so the projection is free, and
+ * keeping it consistent means the same SQL works for both `listCompanies` and
+ * `streamCompaniesCsv` when filters are active.
  */
-function source(p: CompanyListParams): { from: string; params: unknown[] } {
-  if (!needsBase(p))
+function source(
+  p: CompanyListParams,
+  opts: { legalForm?: boolean } = {},
+): { from: string; params: unknown[] } {
+  const projectLegalForm = opts.legalForm ?? false;
+  if (!needsBase(p)) {
+    const project = projectLegalForm ? ', b.legal_form AS legal_form' : '';
+    const join = projectLegalForm ? ' LEFT JOIN bidders AS b ON b.id = ct.bidder_id' : '';
     return {
-      from: `(SELECT ct.*, b.legal_form AS legal_form FROM company_totals AS ct LEFT JOIN bidders AS b ON b.id = ct.bidder_id)`,
+      from: `(SELECT ct.*${project} FROM company_totals AS ct${join})`,
       params: [],
     };
+  }
   const where: string[] = ['c.amount_eur IS NOT NULL'];
   const params: unknown[] = [];
   if (p.sectors?.length) {
@@ -96,6 +111,7 @@ function source(p: CompanyListParams): { from: string; params: unknown[] } {
   if (eu === 'eu') where.push('c.eu_funded = 1');
   else if (eu === 'national') where.push('(c.eu_funded IS NULL OR c.eu_funded = 0)');
   const single = p.sectors?.length === 1 ? p.sectors[0]! : null;
+  // Base-aggregation CTE always projects legal_form (see docstring above).
   const from = `(
     SELECT b.id AS bidder_id, b.name, b.kind, b.ownership_kind, b.eik_normalized AS eik, b.eik_valid, b.settlement,
            b.legal_form AS legal_form,
@@ -150,7 +166,7 @@ export async function listCompanies(
 ): Promise<Page<CompanyListItem>> {
   const sort = SORTS[p.sort as keyof typeof SORTS] ?? SORTS['won'];
   const pageSize = p.pageSize ?? 25;
-  const src = source(p);
+  const src = source(p); // legal_form not needed — toCompanyListItem drops it
   const ew = entityWhere(p);
   const signature = companyFilterSignature(p);
   const ks = keyset({
@@ -233,7 +249,7 @@ export async function getCompanyFacets(db: D1Database): Promise<CompanyFacets> {
 
 /** Streamed CSV of the company leaderboard (honours the same filters as the list page). */
 export function streamCompaniesCsv(db: D1Database, p: CompanyListParams): Response {
-  const src = source(p);
+  const src = source(p, { legalForm: true }); // CSV masker keys off r.legal_form
   const ew = entityWhere(p);
   const cols = [
     'eik',

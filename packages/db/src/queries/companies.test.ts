@@ -366,6 +366,43 @@ describe('streamCompaniesCsv masking', () => {
   });
 });
 
+describe('listCompanies source() projection — legal_form only when needed (PR #183 review T-007)', () => {
+  // The listCompanies hot path returns CompanyListItem via toCompanyListItem, which does not read
+  // legal_form. Projecting `b.legal_form AS legal_form` plus the LEFT JOIN on every list query is
+  // wasted work. Only the CSV streamer needs legal_form (for the natural-person masker). The
+  // unfiltered rollup subquery must therefore omit the join + projection on the list path but
+  // keep them on the CSV path. (The base-aggregation CTE is shared and must project legal_form
+  // because the CSV path may go through it too.)
+  function spySqlDb(): { db: D1Database; sql: string[] } {
+    const db = fakeDb();
+    const sql: string[] = [];
+    const real = db.prepare.bind(db);
+    db.prepare = ((q: string) => {
+      sql.push(q);
+      return real(q);
+    }) as typeof db.prepare;
+    return { db, sql };
+  }
+
+  it('omits LEFT JOIN bidders in the rollup subquery on the listCompanies path (no legal_form needed)', async () => {
+    const { db, sql } = spySqlDb();
+    await listCompanies(db, {});
+    const rollupQueries = sql.filter((q) => q.includes('company_totals') && q.includes('FROM ('));
+    expect(rollupQueries.length).toBeGreaterThan(0);
+    expect(rollupQueries.every((q) => !q.includes('LEFT JOIN bidders'))).toBe(true);
+    expect(rollupQueries.every((q) => !q.includes('b.legal_form AS legal_form'))).toBe(true);
+  });
+
+  it('keeps LEFT JOIN bidders + b.legal_form projection in the rollup subquery on the streamCompaniesCsv path', async () => {
+    const { db, sql } = spySqlDb();
+    await streamCompaniesCsv(db, {}).text();
+    const rollupQueries = sql.filter((q) => q.includes('company_totals') && q.includes('FROM ('));
+    expect(rollupQueries.length).toBeGreaterThan(0);
+    expect(rollupQueries.some((q) => q.includes('LEFT JOIN bidders'))).toBe(true);
+    expect(rollupQueries.some((q) => q.includes('b.legal_form AS legal_form'))).toBe(true);
+  });
+});
+
 describe('prototype-key params (untrusted query values)', () => {
   function spyDb(): { db: D1Database; sql: string[] } {
     const db = fakeDb();
