@@ -113,6 +113,33 @@ beforeEach(() => {
   vi.mocked(getEntityNetwork).mockReset();
 });
 
+describe('company.data loader — consortium-with-sole-trader-first-member branch (mirror of contract.tsx/contract.json.tsx)', () => {
+  it('does NOT over-mask a consortium whose displayName starts with "ЕТ " — keeps ЕИК, no privacy marker (regression for company.tsx consortium guard)', async () => {
+    // A ДЗЗД (consortium) whose first member is a sole trader has a display name beginning
+    // "ЕТ …". `isNaturalPersonBidder` delegates consortium filtering to the caller, so without
+    // the explicit `kind !== 'consortium'` guard the loader would zero the consortium's ЕИК and
+    // stamp noindex — the same over-masking bug that contract.tsx / contract.json.tsx guard against
+    // (MAJOR 1 in the PR #183 review). The fix mirrors those guards: the consortium branch must
+    // return the plain object with company.eik unchanged and no marker.
+    const consortiumWithSoleTraderFirst = makeCompany({
+      kind: 'consortium',
+      isConsortium: true,
+      legalForm: null,
+      displayName: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ; СТРОЙ ООД',
+      name: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ; СТРОЙ ООД',
+      eik: '121817309',
+    });
+    installStubs(consortiumWithSoleTraderFirst);
+
+    const result = await loader(loaderArgs('121817309'));
+
+    expect(result).not.toBeInstanceOf(Response);
+    const plain = result as { company: CompanyDetail };
+    expect(plain.company.eik).toBe('121817309');
+    expect(plain.company.displayName).toBe('ЕТ ДРИФТ - НИКОЛАЙ КИРОВ; СТРОЙ ООД');
+  });
+});
+
 describe('company.data loader — natural-person branch', () => {
   it('masks only the ЕИК (sensitive ID), keeps the public trading displayName, and marks noindex (behaviors 1 + 2)', async () => {
     const natural = makeCompany({ legalForm: 'ЕТ', displayName: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ' });

@@ -86,7 +86,17 @@ export async function loader({ params, context }: Route.LoaderArgs) {
     // `X-Privacy-Mask` marker is translated into `X-Robots-Tag: noindex` by `hardenResponse` in
     // `apps/web/workers/app.ts`. Legal-entity records keep the plain-object return (no marker, no
     // mutation).
-    if (isNaturalPersonBidder(company.displayName, company.legalForm)) {
+    //
+    // Consortium guard (mirrors `contract.tsx:133-134` and `contract.json.tsx:27`): a ДЗЗД whose
+    // first member is a sole trader has a display name beginning "ЕТ …" — `isNaturalPersonBidder`
+    // delegates consortium filtering to the caller, so without this guard the loader would
+    // over-mask the consortium, zeroing its ЕИК and stamping noindex (regression caught by
+    // `company.data.test.ts` — the consortium branch returns a plain object with `company.eik`
+    // unchanged and no marker, same as legal-entity records).
+    if (
+      company.kind !== 'consortium' &&
+      isNaturalPersonBidder(company.displayName, company.legalForm)
+    ) {
       company.eik = null;
       return Response.json(
         { company, coverage, trend, network },
