@@ -56,6 +56,7 @@
 import { describe, expect, it } from 'vitest';
 import { appFetch } from './setup';
 import {
+  assertCacheable,
   assertCommonSecurity,
   assertEdgeCacheFirstRequest,
   assertHtmlContentType,
@@ -79,6 +80,10 @@ describe('edge cache — first-request MISS|BYPASS contract (issue #94 / A6)', (
 
     assertCommonSecurity(res);
     assertHtmlContentType(res);
+    // `/` opts into `publicCache()` via `apps/web/app/routes/_index.tsx:headers()` —
+    // assertCacheable pins the exact `s-maxage=N` + `stale-while-revalidate=M` pair the
+    // worker contract commits to. (A regression that drops `s-maxage` would surface here.)
+    assertCacheable(res);
     assertEdgeCacheFirstRequest(res);
   });
 
@@ -102,10 +107,16 @@ describe('edge cache — first-request MISS|BYPASS contract (issue #94 / A6)', (
   });
 
   it('GET /sitemap.xml — first request takes MISS|BYPASS (sitemaps are cacheable)', async () => {
-    // Sitemaps route through `publicCache(...)` and so are edge-cacheable. The
-    // first request through the worker pipeline takes the MISS branch. The
+    // Sitemaps route through the worker pipeline and opt into BROWSER caching
+    // via `Cache-Control: public, max-age=86400` (see `apps/web/app/routes/sitemap.tsx`).
+    // The first request through the worker pipeline takes the MISS branch. The
     // whitelist tolerates a future change that moves sitemaps to BYPASS, but
     // a regression that drops the X-Edge-Cache header entirely would fail.
+    //
+    // Note: `assertCacheable` (s-maxage + stale-while-revalidate) does NOT
+    // apply to sitemap — the route opts into browser caching only, not the
+    // Cloudflare edge cache. The edge-cache contract for sitemaps is
+    // `X-Edge-Cache ∈ {MISS, BYPASS}` only.
     const res = await get('/sitemap.xml', '203.0.113.72');
 
     expect(
