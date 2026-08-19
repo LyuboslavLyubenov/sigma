@@ -20,6 +20,16 @@
  * multi-space strings would be silently corrupted by it (PR #177 review T-004). This single-pass
  * char scanner tracks in-string state across all three operations so they cannot desynchronize.
  *
+ * TRIGGER / BEGIN…END handling: SQLite trigger bodies use a top-level `BEGIN … END;` block whose
+ * interior may contain its own semicolon (e.g. `SELECT RAISE(ABORT, '…');` before the closing
+ * `END`). The naive "split on every `;`" approach used to split inside the body and ship a
+ * syntactically-broken `CREATE TRIGGER … BEGIN SELECT RAISE(…)` to D1, which errored with
+ * "incomplete input: SQLITE_ERROR" on the first migration that used a trigger (PR #177 review
+ * T-010, surfaced when the lane started applying `0010_publishing_gate_constraints.sql`). The
+ * scanner now tracks a BEGIN/END depth and treats semicolons at depth > 0 as intra-block
+ * statement separators (which the runner's per-statement `DB.exec()` accepts), so the trigger
+ * body is delivered intact.
+ *
  * The scanner is intentionally minimal: it does NOT honour SQL block comments (`/* … *\/`,
  * absent from the migration files) or escaped quote doubling (`''`), neither of which appear in
  * the shipped DDL/fixture SQL. Add those only if a future migration needs them.
@@ -29,6 +39,7 @@ export function stripSqlCommentsAndCollapse(raw: string): string[] {
   let buf = '';
   let inString = false;
   let stringChar: string | null = null;
+  let blockDepth = 0;
 
   for (let i = 0; i < raw.length; i++) {
     const ch = raw[i]!;
@@ -55,8 +66,38 @@ export function stripSqlCommentsAndCollapse(raw: string): string[] {
       continue;
     }
 
-    // Statement separator (only when NOT in a string): flush the buffered statement.
-    if (ch === ';') {
+    // BEGIN…END block tracking (SQLite trigger bodies). Only BEGIN/END at the keyword boundary
+    // counts — a column named `begin_date` or `end_at` is unaffected because we match on the
+    // token boundaries (preceding whitespace + word characters). Inside a block, EVERY
+    // character — including `;` — is appended verbatim; the block flushes as a single statement
+    // when the matching `END` is seen. Splitting intra-block `;` into separate statements would
+    // break the trigger (the inner `SELECT RAISE(...)` is only valid inside the trigger body,
+    // not as a top-level statement D1 can exec).
+    const atWordStart = /[\s]/.test(buf.slice(-1)) || buf.length === 0;
+    if (atWordStart) {
+      const tail = raw.slice(i, i + 5).toUpperCase();
+      if (tail.startsWith('BEGIN') && !/[A-Z0-9_]/.test(raw[i + 5] ?? '')) {
+        blockDepth++;
+        buf += raw.slice(i, i + 5);
+        i += 4;
+        continue;
+      }
+      if (tail.startsWith('END') && !/[A-Z0-9_]/.test(raw[i + 3] ?? '')) {
+        if (blockDepth > 0) {
+          blockDepth--;
+          buf += raw.slice(i, i + 3);
+          i += 2;
+          continue;
+        }
+        // depth-0 END with no open block: fall through to the normal char-append path
+      }
+    }
+
+    // Statement separator (only when NOT in a string AND NOT inside a BEGIN block): flush the
+    // buffered statement. Inside a block, every char is appended verbatim and the block flushes
+    // when the matching END is seen (handled implicitly by the END branch above resetting depth
+    // and falling through to the next iteration's separator handling).
+    if (ch === ';' && blockDepth === 0) {
       const collapsed = collapseWhitespaceOutsideStrings(buf.trim());
       if (collapsed) statements.push(collapsed);
       buf = '';
@@ -66,8 +107,11 @@ export function stripSqlCommentsAndCollapse(raw: string): string[] {
     buf += ch;
   }
 
-  const tail = collapseWhitespaceOutsideStrings(buf.trim());
-  if (tail) statements.push(tail);
+  // Flush the trailing buffer if it has content AND we're not still inside an open block (an
+  // unterminated BEGIN at EOF would otherwise leak through as a half-built statement).
+  if (buf.trim() && blockDepth === 0) {
+    statements.push(collapseWhitespaceOutsideStrings(buf.trim()));
+  }
   return statements;
 }
 

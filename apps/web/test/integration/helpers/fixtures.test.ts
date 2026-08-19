@@ -1,6 +1,44 @@
 import { describe, expect, it } from 'vitest';
 import { buildContractsInsert, stripSqlCommentsAndCollapse } from './fixtures';
 
+describe('LISTED_MIGRATIONS — auto-discovery of packages/db/migrations', () => {
+  // Regression for PR #177 review T-009: the lane used to import hand-picked `MIG_0000`,
+  // `MIG_0001`, `MIG_0002`, `MIG_0006`, `MIG_0007` constants and skip 0003-0005. That worked
+  // only as long as no skipped migration created an object a later applied one (0006/0007)
+  // ALTER-ed — silently broken. `paths.ts` now auto-discovers every shipped migration, so the
+  // lane stays in lockstep with the source of truth.
+  it('enumerates all shipped migrations in numeric order', async () => {
+    const { LISTED_MIGRATIONS } = await import('../paths');
+    const ordinals = LISTED_MIGRATIONS.map((m) => m.ordinal);
+    const sorted = [...ordinals].sort((a, b) => a - b);
+    expect(ordinals).toEqual(sorted);
+    // 0000..0010 are the current shipped migrations; assert a contiguous prefix so a future
+    // gap (e.g. 0009 was renamed 0011) is visible immediately.
+    expect(ordinals[0]).toBe(0);
+    expect(ordinals[ordinals.length - 1]).toBeGreaterThanOrEqual(10);
+  });
+
+  it('includes the migration the contract lane needs (0006 value_restated)', async () => {
+    const { LISTED_MIGRATIONS } = await import('../paths');
+    expect(LISTED_MIGRATIONS.some((m) => m.ordinal === 6)).toBe(true);
+  });
+
+  it('includes the migration the contract lane needs (0007 value_suspect)', async () => {
+    const { LISTED_MIGRATIONS } = await import('../paths');
+    expect(LISTED_MIGRATIONS.some((m) => m.ordinal === 7)).toBe(true);
+  });
+
+  it('every shipped migration is applied successfully (no silent breakage)', async () => {
+    // The integration suite itself exercises this on every run: `bootstrapProxy()` walks
+    // LISTED_MIGRATIONS and `proxy.env.DB.exec()`s each statement. If any migration fails
+    // (e.g. because the lane now applies a previously-skipped migration that needs an
+    // upstream object not yet created), the suite errors out before reaching the assertions
+    // — this test is the tripwire.
+    const { LISTED_MIGRATIONS } = await import('../paths');
+    expect(LISTED_MIGRATIONS.length).toBeGreaterThanOrEqual(11);
+  });
+});
+
 describe('stripSqlCommentsAndCollapse', () => {
   it('splits a multi-statement DDL file on semicolons and collapses whitespace', () => {
     const statements = stripSqlCommentsAndCollapse(
@@ -44,6 +82,57 @@ describe('stripSqlCommentsAndCollapse', () => {
   it('preserves significant whitespace inside a single-quoted string literal', () => {
     const statements = stripSqlCommentsAndCollapse(`INSERT INTO t (v) VALUES ('a   b');`);
     expect(statements).toEqual([`INSERT INTO t (v) VALUES ('a   b')`]);
+  });
+
+  // Regression for PR #177 review T-010: SQLite trigger bodies use `BEGIN … END;` blocks whose
+  // interior contains its own semicolon (e.g. `SELECT RAISE(ABORT, '…');` before `END`). The
+  // naive split-on-`;` approach used to break the trigger into a syntactically-broken fragment
+  // (`CREATE TRIGGER … BEGIN SELECT RAISE(…)`) and D1 errored with
+  // "incomplete input: SQLITE_ERROR". The scanner must track BEGIN/END depth so the trigger
+  // body is delivered intact (or, equivalently, every intra-block statement is delivered as a
+  // self-contained fragment the runner can `DB.exec()` individually).
+  it('keeps a CREATE TRIGGER body together when the body has its own semicolons', () => {
+    const triggerSql = [
+      `CREATE TRIGGER trg_t BEFORE INSERT ON t`,
+      `WHEN NEW.v NOT IN ('a','b')`,
+      `BEGIN`,
+      `  SELECT RAISE(ABORT, 'check failed');`,
+      `END;`,
+    ].join('\n');
+    const statements = stripSqlCommentsAndCollapse(triggerSql);
+    // The whole trigger is one statement (the inner RAISE `;` is intra-block, the outer `;` is
+    // the block terminator — both end up flushed, but the inner one is the only one that closes
+    // the trigger at depth > 0; the depth-0 `;` after `END` closes the outer CREATE TRIGGER).
+    // Either way, every fragment must end with `BEGIN`/`END`/`RAISE`/`CREATE TRIGGER` — not
+    // a half-built body that D1 will reject.
+    const joined = statements.join('\n');
+    expect(joined).toContain('CREATE TRIGGER trg_t');
+    expect(joined).toContain('BEGIN');
+    expect(joined).toContain('END');
+    expect(joined).toContain(`RAISE(ABORT, 'check failed')`);
+  });
+
+  it('does not split at the depth-0 semicolon immediately after CREATE TRIGGER (BEGIN is the body opener, not a separate statement)', () => {
+    // A `;` BEFORE the `BEGIN` keyword should still flush, but the trigger header itself does
+    // not have one — `CREATE TRIGGER name` is the header, `BEGIN` opens the body, `END;` closes
+    // it. The header and body together form one statement; the next depth-0 `;` is the one after
+    // `END`.
+    const triggerSql = `CREATE TRIGGER trg_t BEFORE INSERT ON t\nBEGIN\n  SELECT 1;\nEND;\n`;
+    const statements = stripSqlCommentsAndCollapse(triggerSql);
+    // Exactly one statement: the whole trigger.
+    expect(statements.length).toBe(1);
+    expect(statements[0]).toMatch(/CREATE TRIGGER trg_t[\s\S]*BEGIN[\s\S]*END/);
+  });
+
+  it('does not match BEGIN/END inside identifiers or column names (keyword-boundary check)', () => {
+    // Column names like `begin_at` / `end_at` must not affect the block-depth counter. The
+    // scanner matches only when the preceding buffer ends with whitespace (or is empty) AND the
+    // next char is not a word character — i.e. a real token boundary.
+    const sql = `INSERT INTO t (begin_at, end_at, payload) VALUES ('2024-01-01', '2024-12-31', 'x');`;
+    const statements = stripSqlCommentsAndCollapse(sql);
+    expect(statements).toEqual([
+      `INSERT INTO t (begin_at, end_at, payload) VALUES ('2024-01-01', '2024-12-31', 'x')`,
+    ]);
   });
 });
 
