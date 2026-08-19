@@ -74,7 +74,11 @@
 
 import { describe, expect, it } from 'vitest';
 import { appFetch } from './setup';
-import { assertCommonSecurity, assertEdgeCacheFirstRequest } from './helpers/headers';
+import {
+  assertCommonSecurity,
+  assertCsvContentType,
+  assertEdgeCacheFirstRequest,
+} from './helpers/headers';
 
 const BASE = 'https://sigma.test';
 const CSV_PATH = '/contracts.csv';
@@ -128,6 +132,12 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
     //   - PROD / pre-built (a future migration to @cloudflare/vitest-pool-workers or a pre-built
     //     mode): the 200 production path is the contract, and a 500 fails here.
     // The branch taken in THIS lane is DEV, so the devalue-500 body shape is asserted below.
+    //
+    // Tracking: the devalue-500-vs-200 flip is the migration gate for #94 (vitest-pool-workers
+    // lane). Until that lane lands, this integration suite CANNOT verify the 200 branch — only the
+    // unit-test lane (`apps/web/app/lib/csv-export.test.ts` + `packages/db/src/queries/csv.test.ts`)
+    // covers the real 200 contract end-to-end. Closing #94 flips `isDev` here from a hard-coded
+    // expectation to a documented regression detector.
     const isDev = import.meta.env.DEV;
     if (isDev) {
       expect(
@@ -179,9 +189,10 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
       // Production-shape 200.
       //
       // The CSV `Content-Type` is `text/csv; charset=utf-8` (set by
-      // `apps/web/app/lib/csv-export.ts:CSV_CONTENT_TYPE`). The match is
-      // case-insensitive and tolerates a future charset tweak.
-      expect(res.headers.get('Content-Type')?.toLowerCase()).toMatch(/^text\/csv(?:\s|;|$)/);
+      // `apps/web/app/lib/csv-export.ts:CSV_CONTENT_TYPE`). Tolerates a future
+      // charset tweak — `assertCsvContentType` matches the `text/csv` token
+      // case-insensitively and ignores any suffix.
+      assertCsvContentType(res);
 
       // The CSV `Content-Disposition` is `attachment; filename="sigma-contracts.csv"`.
       const cd = res.headers.get('Content-Disposition');
