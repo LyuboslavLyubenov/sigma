@@ -571,6 +571,22 @@ describe('servedCsvExport privacy', () => {
     expect(text).toBe(maskedBody);
   });
 
+  // Locks in the blanket noindex policy documented in `privacy.tsx` and `docs/privacy-masking.md`:
+  // every CSV export carries `X-Privacy-Mask: applied` regardless of whether the body actually
+  // contains masked natural-person rows. The `authorities.csv` route is explicitly excluded from
+  // body masking (only ЕИК/name redaction is suppressed) but still gets the marker — CSV is a
+  // bulk machine-readable surface and the noindex signal is enforced blanket-wide.
+  it('stamps the privacy mask marker even when the CSV body contains zero masked rows (blanket CSV policy)', async () => {
+    const legalOnlyBody = 'eik,name\n121817309,СОФАРМА ТРЕЙДИНГ АД\n';
+    const r2 = new InMemoryR2();
+    for (const route of ['contracts', 'companies', 'authorities'] as const) {
+      const stream = vi.fn(() => csvResponse(legalOnlyBody));
+      const response = await serve(r2, stream, { route });
+      expect(response.headers.get('X-Privacy-Mask')).toBe('applied');
+      expect(response.headers.get('X-Robots-Tag')).toBeNull();
+    }
+  });
+
   it('preserves Cache-Control: public, max-age=3600 when the streamer emits a row with masked sole-trader identifiers (contracts) and stamps the privacy mask marker', async () => {
     const maskedBody = `eik,name\n,${MASKED_NATURAL_PERSON_LABEL}\n`;
     const r2 = new InMemoryR2();

@@ -73,8 +73,21 @@ export const PRIVACY_MASK_MARKER = 'X-Privacy-Mask';
 export const PRIVACY_MASK_APPLIED = 'applied' as const;
 
 // Route-layer helper: stamps the privacy-mask marker onto a `Headers` object so the downstream
-// worker `hardenResponse` can pick it up and translate it into `X-Robots-Tag: noindex`. Callers
-// must invoke this only when the response body contains masked natural-person data.
+// worker `hardenResponse` can pick it up and translate it into `X-Robots-Tag: noindex`.
+//
+// Two legitimate call sites:
+//   1. **Per-row maskers** (e.g. `/companies/:eik.data`, `/contracts/:id.json`) — call only when
+//      the response body actually contains masked natural-person data, so a legal-entity response
+//      stays out of the noindex bucket.
+//   2. **Blanket-policy surfaces** (the three public CSV exports — `/contracts.csv`,
+//      `/companies.csv`, `/authorities.csv`) — the policy documented in `privacy.tsx` and
+//      `docs/privacy-masking.md` says EVERY CSV export carries `noindex` regardless of whether
+//      any specific row is a natural person, because CSV is a bulk machine-readable surface and
+//      the noindex signal is enforced blanket-wide. CSV callers therefore invoke this helper
+//      unconditionally inside `markCsvCache` (csv-export.ts).
+//
+// Workers translate the marker to `X-Robots-Tag: noindex` and delete it before cache/client, so
+// future callers can pick the strategy that fits their surface without leaking the marker.
 export function markPrivacyMaskApplied(headers: Headers): void {
   headers.set(PRIVACY_MASK_MARKER, PRIVACY_MASK_APPLIED);
 }
