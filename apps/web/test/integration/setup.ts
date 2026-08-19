@@ -23,7 +23,7 @@
 
 import { readFileSync } from 'node:fs';
 import wrangler from 'wrangler';
-import { MIG_0000, MIG_0001, MIG_0002, MIG_0006, MIG_0007, WRANGLER_JSONC } from './paths';
+import { LISTED_MIGRATIONS, WRANGLER_JSONC } from './paths';
 import {
   buildContractsInsert,
   FIXTURE_STATEMENTS,
@@ -61,20 +61,14 @@ async function bootstrapProxy(): Promise<SigmaProxy> {
     remoteBindings: false,
   });
 
-  for (const s of stripSqlCommentsAndCollapse(readFileSync(MIG_0000, 'utf8'))) {
-    await proxy.env.DB.exec(s);
-  }
-  for (const s of stripSqlCommentsAndCollapse(readFileSync(MIG_0001, 'utf8'))) {
-    await proxy.env.DB.exec(s);
-  }
-  for (const s of stripSqlCommentsAndCollapse(readFileSync(MIG_0002, 'utf8'))) {
-    await proxy.env.DB.exec(s);
-  }
-  for (const s of stripSqlCommentsAndCollapse(readFileSync(MIG_0006, 'utf8'))) {
-    await proxy.env.DB.exec(s);
-  }
-  for (const s of stripSqlCommentsAndCollapse(readFileSync(MIG_0007, 'utf8'))) {
-    await proxy.env.DB.exec(s);
+  // Apply every shipped migration in numeric order. Replaces the previous hand-picked subset
+  // ([0000, 0001, 0002, 0006, 0007]) — see `paths.ts:LISTED_MIGRATIONS` for why auto-discovery is
+  // the right policy (a future migration that adds an object a later one ALTERs used to silently
+  // break the lane; PR #177 review T-009).
+  for (const mig of LISTED_MIGRATIONS) {
+    for (const s of stripSqlCommentsAndCollapse(readFileSync(mig.path, 'utf8'))) {
+      await proxy.env.DB.exec(s);
+    }
   }
   for (const stmt of [...FIXTURE_STATEMENTS, buildContractsInsert(30)]) {
     await proxy.env.DB.exec(stmt);
