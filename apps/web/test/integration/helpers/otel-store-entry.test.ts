@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 // Importing the config executes resolveOtelEsmRoot() at module load (side effect). That is safe in
 // the integration lane — the lane already loads this config to run — and gives us the exported pure
 // helper pickOtelStoreEntry to assert against.
-import { pickOtelStoreEntry } from '../../../vitest.integration.config';
+import { extractSemverCore, pickOtelStoreEntry } from '../../../vitest.integration.config';
 
 describe('pickOtelStoreEntry (PR #177 review T-001 — deterministic store entry)', () => {
   it('returns null when no @opentelemetry/api entries exist in the store', () => {
@@ -62,5 +62,34 @@ describe('pickOtelStoreEntry (PR #177 review T-001 — deterministic store entry
       '@opentelemetry+sdk@1.0.0',
     ];
     expect(pickOtelStoreEntry(entries, '1.9.1')).toBe('@opentelemetry+api@1.9.1');
+  });
+});
+
+describe('extractSemverCore (PR #177 review T-008 — semver range parsing)', () => {
+  // The previous implementation used `replace(/^[~^>=<\s]+/, '').split(' ').pop()` which returned
+  // the LAST whitespace-delimited token — for a compound range like `">=1.9.1 <2.0.0"` that
+  // returned the upper bound `<2.0.0`, then `compareSemverDesc` parsed `NaN → 0` and the wrong
+  // store entry won the lookup. extractSemverCore pulls the first semver core out of any spec.
+  it('returns the exact version for a caret/tilde/exact pin', () => {
+    expect(extractSemverCore('^1.9.1')).toBe('1.9.1');
+    expect(extractSemverCore('~1.9.1')).toBe('1.9.1');
+    expect(extractSemverCore('1.9.1')).toBe('1.9.1');
+  });
+
+  it('returns the lower bound for a compound range (the relevant pin)', () => {
+    // `>=1.9.1 <2.0.0` — the lower bound is what the app effectively pins against. The previous
+    // implementation returned `<2.0.0` and silently lost the lookup.
+    expect(extractSemverCore('>=1.9.1 <2.0.0')).toBe('1.9.1');
+  });
+
+  it('returns null when no semver core is present', () => {
+    expect(extractSemverCore('workspace:*')).toBeNull();
+    expect(extractSemverCore('latest')).toBeNull();
+    expect(extractSemverCore('file:../local')).toBeNull();
+  });
+
+  it('returns null for an empty / whitespace input', () => {
+    expect(extractSemverCore('')).toBeNull();
+    expect(extractSemverCore('   ')).toBeNull();
   });
 });
