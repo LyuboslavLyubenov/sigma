@@ -36,7 +36,14 @@ export function meta({ data, params, matches }: Route.MetaArgs) {
   });
   if (
     data?.company &&
-    (isNaturalPersonBidder(data.company.displayName, data.company.legalForm) ||
+    // Consortium guard mirrors the loader (5d33ea5): `isNaturalPersonBidder` delegates consortium
+    // filtering to the caller, so without `kind !== 'consortium'` a ДЗЗД whose displayName starts
+    // with "ЕТ …" would have the meta noindex stamped on an HTML page the loader agrees is
+    // indexable. The prose branch (kind === 'consortium' && membershipNote) is unrelated and
+    // stays — single-name consortia the parser couldn't resolve can still carry identifying names
+    // in the membership note, so they remain noindexed.
+    ((data.company.kind !== 'consortium' &&
+      isNaturalPersonBidder(data.company.displayName, data.company.legalForm)) ||
       (data.company.kind === 'consortium' && Boolean(data.company.membershipNote)))
   ) {
     metaTags.push({ name: 'robots', content: 'noindex' });

@@ -252,6 +252,97 @@ describe('company.data meta() — natural-person noindex branch', () => {
   });
 });
 
+describe('company.data meta() — consortium-with-sole-trader-first-member branch', () => {
+  it('does NOT emit a noindex meta tag for a consortium whose displayName starts with "ЕТ " (mirrors the loader consortium guard)', () => {
+    // The loader (lines ~96-105 of company.tsx) gates masking on
+    // `company.kind !== 'consortium'`, returning a plain object (no privacy marker) for a ДЗЗД
+    // whose first member is a sole trader. `meta()` must mirror that guard — without it,
+    // `isNaturalPersonBidder(displayName, legalForm)` returns `true` for "ЕТ …; СТРОЙ ООД"
+    // (legalForm null), and `meta()` would stamp `<meta name="robots" content="noindex">` on a
+    // HTML page that the loader and `.data` twin agree is indexable. That contradicts the
+    // policy recorded in ADR-0036 §3 + the consortium guard added in 5d33ea5.
+    //
+    // Regression caught by ydimitrof in the PR #183 review of head a13e9a5 (the only unresolved
+    // thread on this PR).
+    const consortiumWithSoleTraderFirst = makeCompany({
+      kind: 'consortium',
+      isConsortium: true,
+      legalForm: null,
+      displayName: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ; СТРОЙ ООД',
+      name: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ; СТРОЙ ООД',
+      eik: '121817309',
+    });
+    const data = {
+      company: consortiumWithSoleTraderFirst,
+      coverage: makeCoverageMeta(),
+      trend: makeTrend(),
+      network: makeNetwork(),
+    };
+
+    const tags = meta({
+      data,
+      params: { eik: '121817309' },
+      matches: [],
+      location: {
+        pathname: '/companies/121817309',
+        search: '',
+        hash: '',
+        state: null,
+        key: 'default',
+      },
+    } as unknown as Parameters<typeof meta>[0]) as Array<{
+      name?: string;
+      content?: string;
+      title?: string;
+    }>;
+
+    const robots = tags.find((t) => t.name === 'robots' && t.content === 'noindex');
+    expect(robots).toBeUndefined();
+  });
+
+  it('still emits noindex for a prose-consortium (kind=consortium, membershipNote set) so policy does not regress', () => {
+    // The prose branch was added intentionally: when the consortium parser returns raw prose
+    // (single-name consortium the parser couldn't resolve), the membership note itself can carry
+    // identifying names and the page is noindexed. The consortium-with-sole-trader-first-member
+    // guard must not regress this case.
+    const proseConsortium = makeCompany({
+      kind: 'consortium',
+      isConsortium: true,
+      legalForm: null,
+      displayName: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+      name: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+      eik: '121817309',
+      membershipNote: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+    });
+    const data = {
+      company: proseConsortium,
+      coverage: makeCoverageMeta(),
+      trend: makeTrend(),
+      network: makeNetwork(),
+    };
+
+    const tags = meta({
+      data,
+      params: { eik: '121817309' },
+      matches: [],
+      location: {
+        pathname: '/companies/121817309',
+        search: '',
+        hash: '',
+        state: null,
+        key: 'default',
+      },
+    } as unknown as Parameters<typeof meta>[0]) as Array<{
+      name?: string;
+      content?: string;
+      title?: string;
+    }>;
+
+    const robots = tags.find((t) => t.name === 'robots' && t.content === 'noindex');
+    expect(robots).toBeDefined();
+  });
+});
+
 describe('company.data worker pipeline — applyPrivacyMaskHeaders on the loader return', () => {
   it('translates X-Privacy-Mask: applied into X-Robots-Tag: noindex and removes the marker (behavior 7)', async () => {
     const natural = makeCompany({ legalForm: 'ЕТ', displayName: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ' });
