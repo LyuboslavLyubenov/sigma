@@ -169,23 +169,51 @@ jobs:
 
       # Persist the raw XML corpus across runs. fetch.mjs writes to scratch/cacbg/raw/ and skips files
       # already on disk (source is immutable per year), so restoring a prior snapshot lets a re-run resume
-      # instead of re-crawling from 2017 — and makes full_crawl=false ("extract from existing raw cache")
+      # instead of re-crawling from 2015 — and makes full_crawl=false ("extract from existing raw cache")
       # meaningful. Each run saves under a unique key; restore-keys pulls the most recent snapshot.
-      # (Cross-run only — a hard mid-crawl job timeout can't save; durable incremental persistence is the
-      # sigma-etl Worker's R2 job per ADR-0006. GitHub's 10 GB repo cache is the ceiling here.)
+      # (Cross-run only — durable incremental persistence is the sigma-etl Worker's R2 job per ADR-0006.
+      # GitHub's 10 GB repo cache is the ceiling here.)
+      #
+      # The key carries run_attempt, not just run_id, because run_id is STABLE across a re-run — that is what
+      # run_attempt exists for — and a cache entry is immutable once written. Keyed on run_id alone, „Re-run
+      # failed jobs" (the natural response to a deadline stop, and what this file's own comments invite)
+      # restores attempt 1's snapshot, crawls for hours, then tries to save onto attempt 1's key: refused,
+      # downgraded to a warning, step green. The verify step below would then look up that same key, find
+      # attempt 1's entry, and certify the loss as a success. Every extra hour crawled would vanish.
       - name: Restore raw CACBG corpus cache
         uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: scratch/cacbg/raw
-          key: cacbg-raw-${{ github.run_id }}
+          key: cacbg-raw-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: |
             cacbg-raw-
 
       # Crawl only on demand. The polite full crawl of register.cacbg.bg is long; steady-state refresh
       # (incremental, R2-cached) is the sigma-etl Worker's job (spec §7), not this workflow.
+      #
+      # --deadline-minutes is 60 under the job's 300-minute cap, and the margin is the point. The corpus
+      # (~37 sets / ~281 000 declarations) does not fit in one job: run 31889519937 crawled 36 sets in the
+      # full 300 and was killed inside the 37th. A killed crawl keeps writing after the step dies, so the
+      # `always()` save below ran tar over a moving tree, failed with „file changed as we read it", and —
+      # because actions/cache/save downgrades a save failure to a warning — reported success having stored
+      # nothing. Stopping ourselves at 240 leaves the tree quiet before the axe falls.
+      #
+      # The margin is 60 minutes MINUS what the deadline cannot see. fetch.mjs starts its own clock when it
+      # starts, so checkout, pnpm/Node setup, install, the guards and the cache restore all come out of the
+      # 300 before minute 0; the stop itself can overshoot by one politeGet chain (5 tries × a 30 s
+      # inactivity timeout plus backoff, concurrent across workers, so ~3 min not 8×3); and on a run that
+      # does NOT deadline, everything downstream — extract over ~281k files, the D1 export, the ~20-minute
+      # Trade Register pass, resolve, audit, migrations, ship, reindex — has to fit in the same hour. Tar
+      # itself is the least of it (~3 GB in an hour is under 1 MiB/s). Treat 60 as adequate but not roomy:
+      # if the downstream steps grow, lower the deadline rather than raising the cap.
+      #
+      # The crawl exits non-zero on a deadline stop (the corpus IS partial) and the cache carries what it
+      # fetched, so the next run resumes rather than restarting. Budget two runs for a cold corpus, one
+      # thereafter. Either „Re-run failed jobs" or a fresh dispatch resumes: the key carries run_attempt,
+      # which a re-run increments, so the save lands on a new key while restore-keys still finds the old one.
       - name: Crawl CACBG (full corpus)
         if: ${{ inputs.full_crawl }}
-        run: node scripts/cacbg/fetch.mjs --concurrency 8
+        run: node scripts/cacbg/fetch.mjs --concurrency 8 --deadline-minutes 240
 
       # Save the (possibly extended) corpus whenever we crawled — even if a later step fails — so the next
       # run resumes from here. Skipped on full_crawl=false runs (nothing new was fetched).
@@ -194,7 +222,20 @@ jobs:
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: scratch/cacbg/raw
-          key: cacbg-raw-${{ github.run_id }}
+          key: cacbg-raw-${{ github.run_id }}-${{ github.run_attempt }}
+
+      # The step above CANNOT fail: actions/cache/save turns any upload/tar error into a warning and exits 0,
+      # so a green „Save raw CACBG corpus cache" is not evidence that anything was stored — in run
+      # 31889519937 it was green and the cache was empty, which is how five hours of crawling went missing
+      # unnoticed. Ask the cache service whether the key actually exists; lookup-only downloads nothing.
+      - name: Verify the corpus cache was really written
+        if: ${{ always() && inputs.full_crawl }}
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: scratch/cacbg/raw
+          key: cacbg-raw-${{ github.run_id }}-${{ github.run_attempt }}
+          lookup-only: true
+          fail-on-cache-miss: true
 
       - name: Extract declarations → staging (dedup by ControlHash)
         run: node scripts/cacbg/extract.mjs
