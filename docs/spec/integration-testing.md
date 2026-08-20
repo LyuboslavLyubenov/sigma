@@ -63,7 +63,7 @@ Issue `#94` поиска работна интеграционна лента з
 `apps/web/test/integration/global-setup.ts` (vitest `globalSetup`) и/или `setup.ts` (lazy per-test-file bootstrap) имплементират малка, **повторяема** фикстура:
 
 - 1 authority (`auth:BG000000000`), 1 bidder (`eik:BG000000001`), 1 tender (`t:FIX-1`).
-- 30 договора в `contracts` с **строго намаляващ** `amount_eur` (`1000+30`, `2000+29`, …, `30000+1`), за да може pagination regression-а да асъртва monotone decreasing стойности.
+- 30 договора в `contracts` с **строго намаляващ** `amount_eur` (`30000+1`, `29000+2`, …, `1000+30`, т.е. `amount = (n - i + 1) * 1000 + i` в `buildContractsInsert`), за да може pagination regression-а да асъртва monotone decreasing стойности.
 - По 1 ред в `home_totals`, `authority_totals`, `company_totals`, `data_freshness` — за да има смислена първа страница за `sitemap-authorities.xml`, `sitemap-companies.xml` и `/`.
 - `INSERT OR IGNORE` навсякъде — фикстурата е идемпотентна и не чупи повторни пускания в рамките на един worker process.
 
