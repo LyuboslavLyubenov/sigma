@@ -1,9 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import {
-  InMemoryCache,
-  InMemoryCacheStorage,
-  resetPolyfillCacheForTesting,
-} from './polyfills';
+import { InMemoryCache, InMemoryCacheStorage, resetPolyfillCacheForTesting } from './polyfills';
 
 describe('InMemoryCacheStorage.default — singleton invariant', () => {
   it('returns the same instance on every access (so afterEach clear() reaches the cache used by app.fetch)', () => {
@@ -57,7 +53,14 @@ describe('resetPolyfillCacheForTesting — exposes the polyfill reset entry poin
     // call when caches is already undefined.
     resetPolyfillCacheForTesting();
     const caches = (
-      globalThis as unknown as { caches?: { default: { put: (k: Request, v: Response) => Promise<void>; match: (k: Request) => Promise<Response | undefined> } } }
+      globalThis as unknown as {
+        caches?: {
+          default: {
+            put: (k: Request, v: Response) => Promise<void>;
+            match: (k: Request) => Promise<Response | undefined>;
+          };
+        };
+      }
     ).caches;
     if (caches) {
       await caches.default.put(new Request('http://example.test/x'), new Response('1'));

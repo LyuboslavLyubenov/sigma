@@ -156,10 +156,7 @@ describe('stripSqlCommentsAndCollapse', () => {
     // and `blockDepth` gets bumped — silently dropping the SELECT.
     const sql = `SELECT *\nFROM beginning WHERE x = 1; SELECT 2;`;
     const statements = stripSqlCommentsAndCollapse(sql);
-    expect(statements).toEqual([
-      `SELECT * FROM beginning WHERE x = 1`,
-      `SELECT 2`,
-    ]);
+    expect(statements).toEqual([`SELECT * FROM beginning WHERE x = 1`, `SELECT 2`]);
   });
 });
 
