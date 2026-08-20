@@ -55,6 +55,40 @@ describe('pickOtelStoreEntry (PR #177 review T-001 — deterministic store entry
     expect(a).toBe('@opentelemetry+api@2.0.0');
   });
 
+  // Regression for PR #177 review T-TIE: the previous sort only compared semver cores. When two
+  // store entries shared the same core but had different peer-dep hashes (`@opentelemetry+api@1.9.1`
+  // vs `@opentelemetry+api@1.9.1_@opentelemetry+core@1.0.0`), `compareSemverDesc` returned 0 and
+  // `Array.prototype.sort` preserved the input order — which depends on `readdirSync` and is
+  // filesystem-dependent. Add a deterministic secondary tie-break by entry name.
+  it('breaks semver-core ties deterministically by entry name (peer-dep hash collision)', () => {
+    const entries = [
+      '@opentelemetry+api@1.9.1',
+      '@opentelemetry+api@1.9.1_@opentelemetry+core@1.0.0',
+    ];
+    // The 'a' < 'A' locale difference makes `@opentelemetry+api@1.9.1` (no suffix) come before
+    // `@opentelemetry+api@1.9.1_…` (with underscore suffix) — chosen as the tie-break here so
+    // "the simpler entry wins" is the contract. Reverse the input and assert we still get the
+    // same answer.
+    const a = pickOtelStoreEntry(entries, null);
+    const b = pickOtelStoreEntry([...entries].reverse(), null);
+    expect(a).toBe(b);
+    expect(a).toBe('@opentelemetry+api@1.9.1');
+  });
+
+  it('breaks exact-match ties deterministically by entry name when appVersion matches both cores', () => {
+    // Same exact-match scenario: two entries with the same semver core, different peer-dep hash.
+    // The exact-match branch must use the same tie-break as the fallback so behaviour is
+    // consistent across both branches.
+    const entries = [
+      '@opentelemetry+api@1.9.1_@opentelemetry+core@1.0.0',
+      '@opentelemetry+api@1.9.1',
+    ];
+    const a = pickOtelStoreEntry(entries, '1.9.1');
+    const b = pickOtelStoreEntry([...entries].reverse(), '1.9.1');
+    expect(a).toBe(b);
+    expect(a).toBe('@opentelemetry+api@1.9.1');
+  });
+
   it('ignores unrelated @opentelemetry/* packages (only @opentelemetry/api matches)', () => {
     const entries = [
       '@opentelemetry+core@1.0.0',

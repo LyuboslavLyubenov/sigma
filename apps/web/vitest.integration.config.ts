@@ -62,14 +62,27 @@ export function pickOtelStoreEntry(
     .map((e) => ({ entry: e, version: e.slice(OTEL_STORE_ENTRY_PREFIX.length) }));
   if (versions.length === 0) return null;
 
-  // Exact match on the semver core (ignoring the `_…` peer-dep hash) wins — that is the version the
-  // app imports, so its build/esm is the correct alias target.
+  // Sort once, deterministically: descending semver core, then ascending entry name as a
+  // tie-break (PR #177 review T-TIE). The previous sort only compared semver cores, so two
+  // entries with the same core but different peer-dep hashes (`@opentelemetry+api@1.9.1` vs
+  // `@opentelemetry+api@1.9.1_@opentelemetry+core@1.0.0`) tied at 0 and `Array.prototype.sort`
+  // preserved the input order — which depends on `readdirSync` and is filesystem-dependent.
+  // The localeCompare tie-break makes "same input → same output" hold across filesystems.
+  const sortedDesc = [...versions].sort((a, b) => {
+    const cmp = compareSemverDesc(a.version, b.version);
+    if (cmp !== 0) return cmp;
+    return a.entry.localeCompare(b.entry);
+  });
+
+  // Exact match on the semver core (ignoring the `_…` peer-dep hash) wins — that is the version
+  // the app imports, so its build/esm is the correct alias target. After the tie-break sort,
+  // every same-core entry is at a stable position; we pick the first match deterministically.
   if (appVersion) {
-    const exact = versions.find((v) => compareSemverDesc(v.version, appVersion) === 0);
+    const exact = sortedDesc.find((v) => compareSemverDesc(v.version, appVersion) === 0);
     if (exact) return exact.entry;
   }
-  // Fallback: highest semver core (deterministic; same input → same output).
-  return [...versions].sort((a, b) => compareSemverDesc(a.version, b.version))[0]!.entry;
+  // Fallback: highest semver core, then alphabetically first entry on a tie.
+  return sortedDesc[0]!.entry;
 }
 
 function resolveOtelEsmRoot(): string {
