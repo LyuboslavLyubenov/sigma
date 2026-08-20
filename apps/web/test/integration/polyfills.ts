@@ -34,9 +34,6 @@ class InMemoryCache {
   get default(): InMemoryCache {
     return this;
   }
-  static get default(): InMemoryCache {
-    return new InMemoryCache();
-  }
   clear(): void {
     this.map.clear();
   }
@@ -88,3 +85,15 @@ afterEach(() => {
   const cacheStorage = (globalThis as unknown as { caches?: { clear?: () => void } }).caches;
   cacheStorage?.clear?.();
 });
+
+/**
+ * Reset the polyfill cache state. Exported for tests that need explicit teardown (e.g. to
+ * re-install a fresh storage before installing a new global). Mirrors the `afterEach` clear
+ * but is safe to call when `caches` is already undefined.
+ */
+export function resetPolyfillCacheForTesting(): void {
+  const cacheStorage = (globalThis as unknown as { caches?: { clear?: () => void } }).caches;
+  cacheStorage?.clear?.();
+}
+
+export { InMemoryCache, InMemoryCacheStorage };
