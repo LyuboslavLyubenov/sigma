@@ -67,22 +67,27 @@ export function stripSqlCommentsAndCollapse(raw: string): string[] {
     }
 
     // BEGIN…END block tracking (SQLite trigger bodies). Only BEGIN/END at the keyword boundary
-    // counts — a column named `begin_date` or `end_at` is unaffected because we match on the
-    // token boundaries (preceding whitespace + word characters). Inside a block, EVERY
-    // character — including `;` — is appended verbatim; the block flushes as a single statement
-    // when the matching `END` is seen. Splitting intra-block `;` into separate statements would
-    // break the trigger (the inner `SELECT RAISE(...)` is only valid inside the trigger body,
-    // not as a top-level statement D1 can exec).
+    // counts — a column named `begin_date` or `end_at`, or an identifier like `beginning` /
+    // `endtime`, is unaffected because we match on token boundaries (preceding whitespace + the
+    // next char is NOT a word character). The boundary class is `[A-Za-z0-9_]` — case-insensitive
+    // — because SQL keywords are case-insensitive but identifiers are case-sensitive, so a
+    // lowercase letter after the upper-cased keyword tail IS still an identifier boundary (e.g.
+    // `beginning` MUST NOT trigger a BEGIN block open; PR #177 review T-KW-LOWER caught this
+    // — the previous `[A-Z0-9_]` only caught uppercase-suffix identifiers). Inside a block,
+    // EVERY character — including `;` — is appended verbatim; the block flushes as a single
+    // statement when the matching `END` is seen. Splitting intra-block `;` into separate
+    // statements would break the trigger (the inner `SELECT RAISE(...)` is only valid inside
+    // the trigger body, not as a top-level statement D1 can exec).
     const atWordStart = /[\s]/.test(buf.slice(-1)) || buf.length === 0;
     if (atWordStart) {
       const tail = raw.slice(i, i + 5).toUpperCase();
-      if (tail.startsWith('BEGIN') && !/[A-Z0-9_]/.test(raw[i + 5] ?? '')) {
+      if (tail.startsWith('BEGIN') && !/[A-Z0-9_]/i.test(raw[i + 5] ?? '')) {
         blockDepth++;
         buf += raw.slice(i, i + 5);
         i += 4;
         continue;
       }
-      if (tail.startsWith('END') && !/[A-Z0-9_]/.test(raw[i + 3] ?? '')) {
+      if (tail.startsWith('END') && !/[A-Z0-9_]/i.test(raw[i + 3] ?? '')) {
         if (blockDepth > 0) {
           blockDepth--;
           buf += raw.slice(i, i + 3);

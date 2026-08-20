@@ -134,6 +134,33 @@ describe('stripSqlCommentsAndCollapse', () => {
       `INSERT INTO t (begin_at, end_at, payload) VALUES ('2024-01-01', '2024-12-31', 'x')`,
     ]);
   });
+
+  // Regression for PR #177 review T-KW-LOWER: the keyword-boundary check at fixtures.ts:79/85
+  // only tests `[A-Z0-9_]` against the NEXT char. `tail` itself is upper-cased, so an identifier
+  // like `beginning` matches `startsWith('BEGIN')` and the NEXT char is lowercase `n`, which is
+  // NOT in `[A-Z0-9_]` — depth gets bumped at depth 0, the statement flushes nothing, and the
+  // whole statement is silently dropped by the `if (buf.trim() && blockDepth === 0)` guard.
+  // Same trap for `endtime` / `endpoint` / `ending` on the END branch. The boundary class must
+  // include both cases (real SQL is case-insensitive for keywords but case-sensitive for
+  // identifiers, so a lowercase letter after `BEGIN` IS an identifier boundary that should NOT
+  // trigger the keyword match).
+  //
+  // The `atWordStart` guard at fixtures.ts:76 already prevents matching `beginning` when the
+  // preceding buffer char is a non-whitespace symbol like `(` (e.g. `INSERT INTO t (beginning`),
+  // because the preceding `(` is not whitespace. The bug surfaces specifically when a keyword-
+  // shaped identifier appears at a *real* token boundary (after whitespace / start-of-input).
+  it('does not match BEGIN/END when followed by a lowercase letter at a real token boundary (identifier boundary)', () => {
+    // `beginning` is preceded by whitespace (the space after `FROM`), so the scanner's
+    // `atWordStart` guard fires, upper-cases the tail to `BEGINNING`, and matches `startsWith('BEGIN')`.
+    // The next char is lowercase `n`, which is NOT in `[A-Z0-9_]`, so the boundary check passes
+    // and `blockDepth` gets bumped — silently dropping the SELECT.
+    const sql = `SELECT *\nFROM beginning WHERE x = 1; SELECT 2;`;
+    const statements = stripSqlCommentsAndCollapse(sql);
+    expect(statements).toEqual([
+      `SELECT * FROM beginning WHERE x = 1`,
+      `SELECT 2`,
+    ]);
+  });
 });
 
 describe('buildContractsInsert', () => {
