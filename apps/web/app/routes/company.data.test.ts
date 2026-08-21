@@ -386,3 +386,89 @@ describe('company.data worker pipeline — applyPrivacyMaskHeaders on the loader
     expect(outHeaders.get('X-Passthrough')).toBe('1');
   });
 });
+
+describe('company.data loader — prose-consortium (kind=consortium, membershipNote) branch', () => {
+  it('sets X-Privacy-Mask: applied WITHOUT zeroing the consortium ЕИК (the same noindex policy as meta() applies to the .data twin)', async () => {
+    // Prose consortia are single-name consortium records the parser couldn't resolve into structured
+    // members; their `membershipNote` itself can carry identifying names (per the meta() comment at
+    // company.tsx:42-49). The HTML page already emits <meta robots noindex> for this branch (see the
+    // dedicated meta() test "still emits noindex for a prose-consortium"). The .data twin must carry
+    // the same noindex signal — otherwise the machine-readable twin leaks the same membership-note
+    // content indexable to crawlers that don't honour <meta>. The ЕИК of the consortium stays
+    // public (it's a legal entity), so the loader sets the marker without clearing company.eik.
+    const proseConsortium = makeCompany({
+      kind: 'consortium',
+      isConsortium: true,
+      legalForm: null,
+      displayName: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+      name: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+      eik: '121817309',
+      membershipNote: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+    });
+    installStubs(proseConsortium);
+
+    const result = await loader(loaderArgs('121817309'));
+
+    expect(result).toBeInstanceOf(Response);
+    const response = result as Response;
+    expect(response.status).toBe(200);
+    expect(response.headers.get('X-Privacy-Mask')).toBe('applied');
+    expect(response.headers.get('X-Robots-Tag')).toBeNull();
+    const body = (await response.json()) as { company: CompanyDetail };
+    // Consortium ЕИК is public (legal entity) — must not be zeroed by this branch.
+    expect(body.company.eik).toBe('121817309');
+    // membershipNote is part of the response body (preserved verbatim) — the noindex signal on the
+    // .data twin is what protects it from indexing.
+    expect(body.company.membershipNote).toBe('КОНСОРЦИУМ ПЪРВА ГРУПА');
+  });
+
+  it('returns a plain object (no marker) when kind=consortium but membershipNote is null — the prose guard does not over-trigger', async () => {
+    // The prose-consortium branch fires on `membershipNote` presence, not on the kind alone. A
+    // consortium whose parser was able to resolve structured members has membershipNote === null
+    // and must stay indexable (mirrors the consortium-with-sole-trader-first-member guard).
+    const structuredConsortium = makeCompany({
+      kind: 'consortium',
+      isConsortium: true,
+      legalForm: null,
+      displayName: 'СТРОЙ ООД; ПЪТ ИНЖЕНЕРИНГ АД',
+      name: 'СТРОЙ ООД; ПЪТ ИНЖЕНЕРИНГ АД',
+      eik: '121817309',
+      membershipNote: null,
+    });
+    installStubs(structuredConsortium);
+
+    const result = await loader(loaderArgs('121817309'));
+
+    expect(result).not.toBeInstanceOf(Response);
+    const plain = result as { company: CompanyDetail };
+    expect(plain.company.eik).toBe('121817309');
+    expect(plain.company.membershipNote).toBeNull();
+  });
+
+  it('translates the prose-consortium X-Privacy-Mask marker into X-Robots-Tag: noindex via the worker pipeline', async () => {
+    // End-to-end proof that the loader-set marker reaches a noindex header on the .data response
+    // (mirrors the natural-person worker-pipeline case but does not zero the ЕИК).
+    const proseConsortium = makeCompany({
+      kind: 'consortium',
+      isConsortium: true,
+      legalForm: null,
+      displayName: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+      name: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+      eik: '121817309',
+      membershipNote: 'КОНСОРЦИУМ ПЪРВА ГРУПА',
+    });
+    installStubs(proseConsortium);
+
+    const result = await loader(loaderArgs('121817309'));
+    expect(result).toBeInstanceOf(Response);
+    const response = result as Response;
+
+    applyPrivacyMaskHeaders(response.headers);
+
+    expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+    expect(response.headers.has('X-Privacy-Mask')).toBe(false);
+    const body = (await response.json()) as { company: CompanyDetail };
+    expect(body.company.eik).toBe('121817309');
+    expect(body.company.membershipNote).toBe('КОНСОРЦИУМ ПЪРВА ГРУПА');
+  });
+});

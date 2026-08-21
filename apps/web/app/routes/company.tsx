@@ -100,11 +100,24 @@ export async function loader({ params, context }: Route.LoaderArgs) {
     // over-mask the consortium, zeroing its ЕИК and stamping noindex (regression caught by
     // `company.data.test.ts` — the consortium branch returns a plain object with `company.eik`
     // unchanged and no marker, same as legal-entity records).
+    //
+    // Prose-consortium noindex: a consortium the parser couldn't resolve into structured members
+    // carries a raw `membershipNote` that can itself hold identifying names. `meta()` (above)
+    // already emits `<meta robots noindex>` for this branch on the HTML page; the `.data` twin
+    // must carry the same signal or crawlers that don't honour `<meta>` see the membership note
+    // verbatim. The consortium ЕИК stays public (legal entity), so we only set the marker — no
+    // zeroing, no name masking (mirror of the natural-person branch but without the field mutation).
     if (
       company.kind !== 'consortium' &&
       isNaturalPersonBidder(company.displayName, company.legalForm)
     ) {
       company.eik = null;
+      return Response.json(
+        { company, coverage, trend, network },
+        { headers: { 'X-Privacy-Mask': 'applied' } },
+      );
+    }
+    if (company.kind === 'consortium' && company.membershipNote) {
       return Response.json(
         { company, coverage, trend, network },
         { headers: { 'X-Privacy-Mask': 'applied' } },
