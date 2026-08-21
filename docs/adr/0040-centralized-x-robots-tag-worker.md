@@ -1,13 +1,12 @@
-# ADR-0037 — Централизирано авторство на `X-Robots-Tag: noindex` в worker-а
-
+# ADR-0040 — Централизирано авторство на `X-Robots-Tag: noindex` в worker-а
 - **Дата:** 2026-07-02
 - **Статус:** Прието
-- **Свързани:** [ADR-0036](0036-privacy-masking.md) (политиката *noindex + маскиране*), [Issue #173](https://github.com/midt-bg/sigma/issues/173), PR #183 (review fixes)
-- **Обхват:** Механизма, по който се прилага публичният хедър `X-Robots-Tag: noindex` върху всички машинно-четими повърхности (JSON, CSV, `.data` twin на React Router v7 single-fetch). Не променя продуктовата политика от ADR-0036 — само нейното инженерно реализиране.
+- **Свързани:** [ADR-0039](0039-privacy-masking.md) (политиката *noindex + маскиране*), [Issue #173](https://github.com/midt-bg/sigma/issues/173), PR #183 (review fixes)
+- **Обхват:** Механизма, по който се прилага публичният хедър `X-Robots-Tag: noindex` върху всички машинно-четими повърхности (JSON, CSV, `.data` twin на React Router v7 single-fetch). Не променя продуктовата политика от ADR-0039 — само нейното инженерно реализиране.
 
 ## Контекст
 
-ADR-0036 задължава всяка машинно-четима повърхност да носи `X-Robots-Tag: noindex`. Първоначалната имплементация пишеше хедъра **inline на всяко място**, което го изпращаше:
+ADR-0039 задължава всяка машинно-четима повърхност да носи `X-Robots-Tag: noindex`. Първоначалната имплементация пишеше хедъра **inline на всяко място**, което го изпращаше:
 
 - в loader-а на [`apps/web/app/routes/contract.json.tsx`](../../apps/web/app/routes/contract.json.tsx);
 - в четирите клона на [`apps/web/app/lib/csv-export.ts`](../../apps/web/app/lib/csv-export.ts) (`markCsvCache`, динамичният `Response`, 200/206 `Response`, 304 `Response`).
@@ -35,7 +34,7 @@ ADR-0036 задължава всяка машинно-четима повърх�
 - **Една точка за поддръжка.** Всяка бъдеща машинно-четима повърхност (нов feed, нов route) наследява `X-Robots-Tag: noindex` автоматично, стига да извика `markPrivacyMaskApplied(headers)`. Няма как да се „забрави" хедърът на нова повърхност, която вече маркира — макар че добавянето на нова повърхност изисква умишлено поставяне на маркера.
 - **Маркерът не изтича.** Изтриването в `hardenResponse` е defensive: дори повторно/идемпотентно извикване оставя вече сложен `X-Robots-Tag` недокоснат и никога не пропуска `X-Privacy-Mask` навън.
 - **Разделени тестове.** Loader/helper тестовете твърдят присъствие на маркера **и отсъствие** на `X-Robots-Tag` (последното е прерогатив на worker-а); worker/CSP тестовете твърдят превода. Виж [`security.test.ts`](../../apps/web/app/lib/security.test.ts), [`contract.json.test.ts`](../../apps/web/app/routes/contract.json.test.ts), [`csv-export.test.ts`](../../apps/web/app/lib/csv-export.test.ts), [`company.data.test.ts`](../../apps/web/app/routes/company.data.test.ts) и [`app.nofollow.test.ts`](../../apps/web/workers/app.nofollow.test.ts).
-- **`authorities.csv`** получава `X-Robots-Tag: noindex` (маркира се), но без маскиране на тялото — възложителите винаги имат попълнен ЕИК (публични органи). Политическа последователност, не техническо маскиране (както и в ADR-0036).
+- **`authorities.csv`** получава `X-Robots-Tag: noindex` (маркира се), но без маскиране на тялото — възложителите винаги имат попълнен ЕИК (публични органи). Политическа последователност, не техническо маскиране (както и в ADR-0039).
 
 ## Засегнати повърхности
 

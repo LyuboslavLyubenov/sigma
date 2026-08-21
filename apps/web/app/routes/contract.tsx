@@ -119,7 +119,7 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   const contract = await getContract(getDb(context.cloudflare.env), contractIdFromSlug(params.id));
   if (!contract) throw new Response('Not Found', { status: 404 });
 
-  // Privacy policy for the contract detail page (ADR-0036 §6, decision recorded in PR #183 review):
+  // Privacy policy for the contract detail page (ADR-0039 §6, decision recorded in PR #183 review):
   // the trading `displayName` is PUBLIC, the ЕИК is the sensitive natural-person identifier. This
   // is the MOST-indexable surface — `robots.txt` does not block `/contracts/:id` (or its `.data`
   // twin), and the contract page is among the most-visited. Masking + signalling in the shared

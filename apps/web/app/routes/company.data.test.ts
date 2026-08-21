@@ -160,7 +160,7 @@ describe('company.data loader — natural-person branch', () => {
     // displayName is the PUBLIC trading name, rendered verbatim on the HTML page; the `.data` twin
     // is React Router's single-fetch transport for client navigations (NOT a standalone export like
     // /contracts/:id.json), so the name must stay verbatim or client-rendered pages break. Only the
-    // ЕИК is masked. This locks the policy decision recorded in ADR-0036 §3 + PR #183 review.
+    // ЕИК is masked. This locks the policy decision recorded in ADR-0039 §3 + PR #183 review.
     expect(body.company.displayName).toBe('ЕТ ДРИФТ - НИКОЛАЙ КИРОВ');
   });
 });
@@ -260,7 +260,7 @@ describe('company.data meta() — consortium-with-sole-trader-first-member branc
     // `isNaturalPersonBidder(displayName, legalForm)` returns `true` for "ЕТ …; СТРОЙ ООД"
     // (legalForm null), and `meta()` would stamp `<meta name="robots" content="noindex">` on a
     // HTML page that the loader and `.data` twin agree is indexable. That contradicts the
-    // policy recorded in ADR-0036 §3 + the consortium guard added in 5d33ea5.
+    // policy recorded in ADR-0039 §3 + the consortium guard added in 5d33ea5.
     //
     // Regression caught by ydimitrof in the PR #183 review of head a13e9a5 (the only unresolved
     // thread on this PR).

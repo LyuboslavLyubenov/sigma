@@ -101,7 +101,7 @@ beforeEach(() => {
 // and the machine-readable `.data` payload. This is the most-indexable surface (robots.txt does not
 // block /contracts/:id or its .data twin), so a sole-trader ЕИК leaked here is a worse exposure than
 // the already-closed .json/.csv paths. The policy mirrors `company.tsx:89` exactly: ЕИК (the
-// sensitive natural-person ID) → null, the trading displayName stays PUBLIC (ADR-0036 §6), and the
+// sensitive natural-person ID) → null, the trading displayName stays PUBLIC (ADR-0039 §6), and the
 // `X-Privacy-Mask: applied` marker is set so the worker translates it to `X-Robots-Tag: noindex`.
 describe('contract.data loader — natural-person bidder branch', () => {
   it('clears the sole-trader ЕИК and marks the response noindex (covers HTML + .data twin)', async () => {
@@ -114,7 +114,7 @@ describe('contract.data loader — natural-person bidder branch', () => {
     const response = result as Response;
     expect(response.status).toBe(200);
     expect(response.headers.get('X-Privacy-Mask')).toBe('applied');
-    // The loader must NOT emit X-Robots-Tag directly — that is the worker's job (ADR-0037).
+    // The loader must NOT emit X-Robots-Tag directly — that is the worker's job (ADR-0040).
     expect(response.headers.get('X-Robots-Tag')).toBeNull();
     const body = (await response.json()) as { contract: { bidder: { eik: string | null } } };
     // ЕИК is the sensitive natural-person identifier → masked on the shared object.
