@@ -32,6 +32,7 @@ const contractRow = {
   bidder_id: 'eik:111111113',
   bidder_name: 'Bidder',
   bidder_kind: 'company' as const,
+  bidder_legal_form: 'ООД',
   procedure_type: 'Открита процедура',
   signed_at: '2024-01-01',
   bids_received: 3,
@@ -375,5 +376,76 @@ describe('streamContractsCsv masking', () => {
     expect(rows[1]![5]).toBe('ЕТ ДРИФТ - НИКОЛАЙ КИРОВ и др.');
     expect(rows[1]![6]).toBe('201345678');
     expect(rows[1]![7]).toBe('consortium');
+  });
+});
+
+describe('listContracts — privacy masking on the leaderboard list (PR #183 review #1)', () => {
+  // Sole traders must read "Частно лице" on /contracts + /contracts.data (RRv7 single-fetch twin)
+  // and on the home single-offer tables. The CSV streamer masks the same row upstream of bytes
+  // hitting R2; maskContractForPrivacy covers /contracts/:id.json. The list path is the third
+  // surface.
+  const soleTraderRow = {
+    id: 'c:et-1',
+    subject: 'S',
+    unp: 'UNP-et',
+    cpv_code: '45000000',
+    eu_funded: 0,
+    authority_id: 'auth:1',
+    authority_name: 'Authority',
+    bidder_id: 'eik:121817309',
+    bidder_name: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ',
+    bidder_kind: 'company' as const,
+    bidder_legal_form: 'ЕТ',
+    procedure_type: 'Открита процедура',
+    signed_at: '2024-01-01',
+    bids_received: 3,
+    amount_eur: 1000,
+    sort_value: 1000,
+  };
+  const legalEntityRow = { ...contractRow };
+  const consortiumRow = {
+    ...contractRow,
+    bidder_name: 'ЕТ Иван Петров; Строй ООД',
+    bidder_kind: 'consortium' as const,
+    bidder_legal_form: null,
+  };
+
+  function dbFor(row: object | object[]): D1Database {
+    const rows = Array.isArray(row) ? row : [row];
+    return {
+      prepare(_sql: string) {
+        return {
+          bind() {
+            return this;
+          },
+          async all<T>() {
+            return { results: rows as T[] };
+          },
+          async first<T>() {
+            return { total: rows.length, eur: rows.length ? 1000 : 0, suspect: 0 } as T;
+          },
+        };
+      },
+    } as D1Database;
+  }
+
+  it('masks bidderName + bidderDisplayName for a sole trader (ЕТ, legal_form=ЕТ)', async () => {
+    const page = await listContracts(dbFor(soleTraderRow), { pageSize: 10 });
+    expect(page.items).toHaveLength(1);
+    expect(page.items[0]!.bidderName).toBe(MASKED_NATURAL_PERSON_LABEL);
+    expect(page.items[0]!.bidderDisplayName).toBe(MASKED_NATURAL_PERSON_LABEL);
+  });
+
+  it('preserves the legal-entity name verbatim', async () => {
+    const page = await listContracts(dbFor(legalEntityRow), { pageSize: 10 });
+    expect(page.items[0]!.bidderName).toBe('Bidder');
+    expect(page.items[0]!.bidderDisplayName).toBe('Bidder');
+  });
+
+  it('does NOT mask a consortium whose first member is a sole trader (MAJOR-class guard)', async () => {
+    const page = await listContracts(dbFor(consortiumRow), { pageSize: 10 });
+    expect(page.items[0]!.bidderName).toBe('ЕТ Иван Петров; Строй ООД');
+    expect(page.items[0]!.bidderKind).toBe('consortium');
+    expect(page.items[0]!.isConsortium).toBe(true);
   });
 });

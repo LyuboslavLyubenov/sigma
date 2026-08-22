@@ -104,6 +104,7 @@ interface ContractRow {
   bidder_id: string;
   bidder_name: string;
   bidder_kind: 'company' | 'consortium';
+  bidder_legal_form: string | null;
   procedure_type: string;
   signed_at: string | null;
   bids_received: number | null;
@@ -113,7 +114,7 @@ interface ContractRow {
 const SELECT = `
   SELECT c.id, COALESCE(NULLIF(c.contract_subject, ''), t.title) AS subject, t.source_id AS unp,
          t.cpv_code, c.eu_funded, t.authority_id, a.name AS authority_name,
-         c.bidder_id, b.name AS bidder_name, b.kind AS bidder_kind,
+         c.bidder_id, b.name AS bidder_name, b.kind AS bidder_kind, b.legal_form AS bidder_legal_form,
          t.procedure_type, c.signed_at, c.bids_received, c.amount_eur`;
 const FROM = `
   FROM contracts c
@@ -211,6 +212,16 @@ function contractFilterSignature(p: ContractListParams): string {
 function toItem(r: ContractRow): ContractListItem {
   const authorityName = cleanName(r.authority_name);
   const bidderName = cleanName(r.bidder_name);
+  // Privacy (PR #183 review): the contract list — /contracts + /contracts.data (RRv7 single-fetch
+  // twin) and the home single-offer tables — shares this mapper. A sole trader must read
+  // "Частно лице" with no source name exposed on the leaderboard; the CSV path already masks the
+  // same row upstream of bytes hitting R2 (streamContractsCsv), and the JSON masker
+  // (maskContractForPrivacy) covers /contracts/:id.json. This is the third surface. The
+  // bidder_kind !== 'consortium' guard is required by isNaturalPersonBidder's docstring
+  // (caller filters JVs).
+  const isNaturalPerson =
+    r.bidder_kind !== 'consortium' && isNaturalPersonBidder(bidderName, r.bidder_legal_form);
+  const maskedBidderName = isNaturalPerson ? MASKED_NATURAL_PERSON_LABEL : bidderName;
   return {
     id: contractSlug(r.id),
     subject: r.subject,
@@ -221,8 +232,10 @@ function toItem(r: ContractRow): ContractListItem {
     authoritySlug: authoritySlug(r.authority_id),
     authorityName,
     bidderSlug: companySlug(r.bidder_id),
-    bidderName,
-    bidderDisplayName: entityName(bidderName, r.bidder_kind),
+    bidderName: maskedBidderName,
+    bidderDisplayName: isNaturalPerson
+      ? MASKED_NATURAL_PERSON_LABEL
+      : entityName(maskedBidderName, r.bidder_kind),
     bidderKind: r.bidder_kind,
     procedureLabel: procedureGroup(r.procedure_type).label,
     signedAt: r.signed_at,
