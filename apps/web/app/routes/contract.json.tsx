@@ -26,8 +26,14 @@ export function maskContractForPrivacy(
 ): ContractRecord {
   if (record.bidder.kind === 'consortium') return record;
   if (!isNaturalPersonBidder(record.bidder.name, bidderLegalForm)) return record;
+  // Drop the server-only `bidder_legal_form` field explicitly so it never leaks into the JSON
+  // response body. The masker's input type widens to `ContractRecord & { bidder_legal_form }`,
+  // but the public ContractRecord API contract does not include the field — without this destructure
+  // the `...record` spread would carry the natural-person classifier straight through to the client
+  // alongside the masked name (PR #183 review #2).
+  const { bidder_legal_form: _omit, ...publicRecord } = record;
   return {
-    ...record,
+    ...publicRecord,
     bidder: {
       ...record.bidder,
       eik: null,
@@ -39,6 +45,21 @@ export function maskContractForPrivacy(
       bidder: MASKED_NATURAL_PERSON_LABEL,
     },
   };
+}
+
+/**
+ * Strip the server-only `bidder_legal_form` field from any contract record before serialization,
+ * so it never reaches the JSON response body regardless of which masker branch (masked, legal
+ * entity passthrough, or consortium passthrough) produced the value. The masker's passthrough
+ * branch returns the record BY REFERENCE, so it carries `bidder_legal_form` until the strip here
+ * (PR #183 review #2). The input shape is `ContractRecord` (post-masker) widened to include the
+ * optional server-only field, since both branches carry it.
+ */
+function stripServerOnlyFields(
+  record: ContractRecord & { bidder_legal_form?: string | null },
+): ContractRecord {
+  const { bidder_legal_form: _omit, ...publicRecord } = record;
+  return publicRecord;
 }
 
 // Resource route: the assembled contract record as machine-readable JSON (/contracts/:id.json).
@@ -57,11 +78,16 @@ export async function loader({ params, context }: Route.LoaderArgs) {
   const record = await getContract(getDb(context.cloudflare.env), contractIdFromSlug(id));
   if (!record) return withDataSource(Response.json({ error: 'not_found' }, { status: 404 }));
   const masked = maskContractForPrivacy(record, record.bidder_legal_form);
+  // Strip server-only fields (`bidder_legal_form`) from every code path — masked, legal entity
+  // passthrough, or consortium passthrough — so the natural-person classifier never reaches the
+  // client. The masker's passthrough branch returns `record` by reference, which still carries
+  // the server-only field until this strip (PR #183 review #2).
+  const publicRecord = stripServerOnlyFields(masked);
   const headers = new Headers({
     'Content-Type': 'application/json; charset=utf-8',
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': publicCache(3600),
   });
   if (masked !== record) headers.set('X-Robots-Tag', 'noindex');
-  return withDataSource(new Response(serializeJsonForScript(masked), { headers }));
+  return withDataSource(new Response(serializeJsonForScript(publicRecord), { headers }));
 }

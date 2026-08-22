@@ -236,6 +236,45 @@ describe('contract.json loader', () => {
     expect(body.sourceNames.bidder).not.toBe('ЕТ ДРИФТ - НИКОЛАЙ КИРОВ');
   });
 
+  it('does NOT leak the server-only bidder_legal_form field into the masked body (PR #183 review #2)', async () => {
+    // The record carries `bidder_legal_form` as a server-only input to the masker; the public
+    // ContractRecord API contract does not include the field, so the JSON response body must not
+    // either. Without the explicit destructure, the spread `...record` in the masker's masked
+    // branch preserved the extra field — a public payload that advertised the natural-person
+    // classification alongside the masked name.
+    vi.mocked(getContract).mockResolvedValueOnce(makeRecord());
+    const response = await loader(loaderArgs('c-1'));
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty('bidder_legal_form');
+  });
+
+  it('does NOT leak the server-only bidder_legal_form field into a passthrough legal-entity body (PR #183 review #2)', async () => {
+    // Same invariant on the no-mask branch — when the masker returns the record by reference, the
+    // extra field is still server-only and must not reach the client. This is the path the legal
+    // entity / consortium negative cases take.
+    const record = makeRecord({
+      bidder: {
+        slug: 'bidder-2',
+        orderingUnit: null,
+        name: 'СОФАРМА ТРЕЙДИНГ АД',
+        displayName: 'СОФАРМА ТРЕЙДИНГ АД',
+        kind: 'company',
+        typeLabel: null,
+        settlement: 'Sofia',
+        eik: '123456789',
+        sector: null,
+        totalContracts: 1,
+        totalEur: 1000,
+      },
+    });
+    record.bidder_legal_form = 'АД';
+    vi.mocked(getContract).mockResolvedValueOnce(record);
+
+    const response = await loader(loaderArgs('c-2'));
+    const body = (await response.json()) as Record<string, unknown>;
+    expect(body).not.toHaveProperty('bidder_legal_form');
+  });
+
   it('passes a legal entity through verbatim and omits the privacy mask marker (behavior 2)', async () => {
     const record = makeRecord({
       bidder: {
