@@ -77,18 +77,28 @@ function needsBase(p: CompanyListParams): boolean {
  * Keep consumed filter keys in sync with COMPANY_FILTER_KEYS and companyFilterSignature().
  *
  * `legalForm` controls whether the `b.legal_form AS legal_form` projection is added on the
- * rollup subquery (the unfiltered path). Only the CSV streamer needs it (the natural-person
- * masker keys off `r.legal_form`); the HTML list path maps rows through `toCompanyListItem`
- * which drops it. The base-aggregation CTE (filtered path) always projects legal_form: it
- * already does an INNER JOIN on `bidders b` for the grouping, so the projection is free, and
- * keeping it consistent means the same SQL works for both `listCompanies` and
- * `streamCompaniesCsv` when filters are active.
+ * rollup subquery (the unfiltered path). Both consumers need it on every path: the CSV streamer
+ * keys its natural-person masker off `r.legal_form`, and `toCompanyListItem` (the list-path mapper)
+ * ALSO reads `r.legal_form` for the same masking decision (PR #183 review T-001 — see the
+ * `fix(privacy): mask sole-trader rows in leaderboard list mappers` commit). The rollup subquery
+ * therefore ALWAYS projects legal_form on the list path; the `legalForm` flag is now a no-op
+ * preserved for the explicit "this query masks on legal_form" assertion at call sites. The
+ * base-aggregation CTE (filtered path) always projects legal_form: it already does an INNER JOIN
+ * on `bidders b` for the grouping, so the projection is free.
  */
 function source(
   p: CompanyListParams,
   opts: { legalForm?: boolean } = {},
 ): { from: string; params: unknown[] } {
-  const projectLegalForm = opts.legalForm ?? false;
+  // PR #183 review MAJOR #1 (lyubomir-bozhinov, 2026-08-24): listCompanies's COLS names
+  // `legal_form` (the mapper consumes it for masking), so the rollup subquery MUST project it.
+  // A previous perf optimization (`3cd5d23 perf(db): project legal_form only on the CSV path`)
+  // made this conditional, but the conditional predated the masking mapper's consumption and
+  // broke the unfiltered list path with `no such column: legal_form` on real D1. The join is on
+  // bidders.id (PK), so the cost is bounded — restoring it on both paths is the simplest
+  // correct change. The flag remains so callers can be explicit about their need and tests can
+  // assert the SQL shape.
+  const projectLegalForm = opts.legalForm ?? true;
   if (!needsBase(p)) {
     const project = projectLegalForm ? ', b.legal_form AS legal_form' : '';
     const join = projectLegalForm ? ' LEFT JOIN bidders AS b ON b.id = ct.bidder_id' : '';
@@ -166,7 +176,10 @@ export async function listCompanies(
 ): Promise<Page<CompanyListItem>> {
   const sort = SORTS[p.sort as keyof typeof SORTS] ?? SORTS['won'];
   const pageSize = p.pageSize ?? 25;
-  const src = source(p); // legal_form not needed — toCompanyListItem drops it
+  // toCompanyListItem masks sole-trader rows on `r.legal_form` (PR #183 review T-001) — the rollup
+  // subquery therefore must project it (the source() default is now to project, see PR #183 review
+  // MAJOR #1). Pass the flag explicitly so the SQL intent is searchable.
+  const src = source(p, { legalForm: true });
   const ew = entityWhere(p);
   const signature = companyFilterSignature(p);
   const ks = keyset({
