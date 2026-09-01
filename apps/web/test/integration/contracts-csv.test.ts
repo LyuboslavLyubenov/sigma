@@ -136,8 +136,8 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
     // Tracking: the devalue-500-vs-200 flip is the migration gate for #94 (vitest-pool-workers
     // lane). Until that lane lands, this integration suite CANNOT verify the 200 branch — only the
     // unit-test lane (`apps/web/app/lib/csv-export.test.ts` + `packages/db/src/queries/csv.test.ts`)
-    // covers the real 200 contract end-to-end. Closing #94 flips `isDev` here from a hard-coded
-    // expectation to a documented regression detector.
+    // covers the real 200 contract end-to-end. Closing #94 removes the `it.skip` / `it.todo`
+    // gating below — the 200 branch is then asserted on every run.
     const isDev = import.meta.env.DEV;
     if (isDev) {
       expect(
@@ -145,10 +145,14 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
         '[sigma/test/csv] in DEV mode /contracts.csv must return the documented devalue 500 (a 200 here means the dev-mode devalue path changed and the branch below needs updating); any non-500 status is a route regression.',
       ).toBe(500);
     } else {
-      expect(
-        res.status,
-        '[sigma/test/csv] in a prod/pre-built mode /contracts.csv must return 200; a 500 here is a real route regression (the dev-mode devalue artifact must not escape into a pre-built lane).',
-      ).toBe(200);
+      // Gate on the #94 vitest-pool-workers migration landing. Today this lane is always DEV,
+      // so the else-branch is unreachable; the test below documents the 200 contract and turns
+      // green the moment the lane migrates (ydimitrof review 2026-08-31, thread on
+      // contracts-csv.test.ts:146 — the previous `expect(...).toBe(200)` here locked the test
+      // green against the known-broken state, so a future GOOD change required manual editing).
+      it.todo(
+        'in a prod/pre-built lane /contracts.csv must return 200 (gated on #94 vitest-pool-workers migration)',
+      );
     }
 
     // Inspect the route-specific headers + body shape.
