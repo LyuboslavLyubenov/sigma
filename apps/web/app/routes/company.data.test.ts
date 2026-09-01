@@ -163,6 +163,29 @@ describe('company.data loader — natural-person branch', () => {
     // ЕИК is masked. This locks the policy decision recorded in ADR-0039 §3 + PR #183 review.
     expect(body.company.displayName).toBe('ЕТ ДРИФТ - НИКОЛАЙ КИРОВ');
   });
+
+  it('keeps the masking signal consistent across eik / eikValid / hasEik (ydimitrof review 2026-08-31, thread on company.tsx:114)', async () => {
+    // The company-profile loader must zero `eikValid` and `hasEik` alongside `eik` so a consumer
+    // never sees a payload of `eik: null, eikValid: true, hasEik: false` — that combination
+    // would render a „валиден ЕИК" badge next to an empty value (the same invariant the
+    // leaderboard mapper enforces via toCompanyListItem).
+    const natural = makeCompany({
+      legalForm: 'ЕТ',
+      displayName: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ',
+      eik: '123456789',
+      eikValid: true,
+      hasEik: true,
+    });
+    installStubs(natural);
+
+    const result = await loader(loaderArgs('123456789'));
+    expect(result).toBeInstanceOf(Response);
+    const body = (await (result as Response).json()) as { company: CompanyDetail };
+
+    expect(body.company.eik).toBeNull();
+    expect(body.company.eikValid).toBe(false);
+    expect(body.company.hasEik).toBe(false);
+  });
 });
 
 describe('company.data loader — legal-entity branch', () => {
@@ -190,7 +213,13 @@ describe('company.data loader — legal-entity branch', () => {
 });
 
 describe('company.data headers() — forwards the privacy mask marker', () => {
-  it('returns X-Privacy-Mask + Cache-Control when the loader set the marker (behavior 4)', () => {
+  // The company-profile (`/companies/:eik`) HTML page is a SINGLE-RECORD page, not a leaderboard
+  // list. A masked sole-trader record is fully replaced with `MASKED_NATURAL_PERSON_LABEL` and
+  // a null ЕИК; the meta tag (`meta()` above) also adds `<meta robots noindex>`. Forwarding the
+  // marker to the HTML response is belt-and-braces with the meta tag, NOT a regression. The
+  // leaderboard (`/companies`) is the only surface where forwarding is undesirable (ydimitrof
+  // review 2026-08-31, thread on apps/web/app/routes/companies.tsx:61); see companies.render.test.tsx.
+  it('returns X-Privacy-Mask + Cache-Control when the loader set the marker', () => {
     const loaderHeaders = new Headers({ 'X-Privacy-Mask': 'applied' });
 
     const result = headers({
@@ -204,7 +233,7 @@ describe('company.data headers() — forwards the privacy mask marker', () => {
     expect(result['X-Privacy-Mask']).toBe('applied');
   });
 
-  it('returns only Cache-Control when loaderHeaders carry no marker (behavior 5)', () => {
+  it('returns only Cache-Control when loaderHeaders carry no marker', () => {
     const loaderHeaders = new Headers();
 
     const result = headers({

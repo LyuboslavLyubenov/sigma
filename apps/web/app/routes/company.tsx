@@ -111,7 +111,17 @@ export async function loader({ params, context }: Route.LoaderArgs) {
       company.kind !== 'consortium' &&
       isNaturalPersonBidder(company.displayName, company.legalForm)
     ) {
+      // Mask the natural-person identifiers at the source so both the HTML and the `.data` RRv7
+      // single-fetch twin agree on a consistent payload. The ЕИК is the sensitive identifier and
+      // the only field that ever reveals it to clients; `eikValid` (the validation bit) and
+      // `hasEik` must follow the masked field — a payload of `eik: null, eikValid: true,
+      // hasEik: false` would let a downstream consumer render a „валиден ЕИК" badge next to an
+      // empty value (ydimitrof review 2026-08-31, thread on apps/web/app/routes/company.tsx:114).
+      // The marker is translated to `X-Robots-Tag: noindex` by `hardenResponse` in
+      // `apps/web/workers/app.ts`.
       company.eik = null;
+      company.eikValid = false;
+      company.hasEik = false;
       return Response.json(
         { company, coverage, trend, network },
         { headers: { 'X-Privacy-Mask': 'applied' } },
