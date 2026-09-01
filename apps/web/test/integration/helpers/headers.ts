@@ -170,13 +170,19 @@ export function assertCommonSecurity(response: Response): void {
  * substring-based so the assertion does not break when the helper evolves to
  * accept a custom maxAge or when Cloudflare's Cache API emits extra directives.
  *
- * Bare regex `s-maxage=\d+` would also pass `/s-maxage=0/` (no caching) — to
- * keep the assertion tight, the substring check requires both `s-maxage=` AND
- * `stale-while-revalidate=` to appear in the directive.
+ * The `s-maxage` value MUST be a positive integer — `s-maxage=0` is "do not cache",
+ * which is NOT edge-cacheable. The regex `/s-maxage=\d+/` would happily accept
+ * `s-maxage=0`, and the bare `stale-while-revalidate=` check does NOT exclude that
+ * case (`public, s-maxage=0, stale-while-revalidate=60` would pass both checks).
+ * The previous comment claimed the two checks together held the assertion tight;
+ * in fact they did not (ydimitrof review 2026-08-31, thread on headers.ts:179).
+ * The regex below requires a leading non-zero digit (`[1-9]\d*`) so `s-maxage=0`
+ * fails. The `stale-while-revalidate=` substring check stays as a belt-and-braces
+ * invariant: every edge-cacheable worker response emits BOTH directives together.
  */
 export function assertCacheable(response: Response): void {
   const cc = header(response.headers, 'Cache-Control');
-  expect(cc).toMatch(/s-maxage=\d+/);
+  expect(cc).toMatch(/s-maxage=[1-9]\d*/);
   expect(cc).toContain('stale-while-revalidate=');
 }
 
