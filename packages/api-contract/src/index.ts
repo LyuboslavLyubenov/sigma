@@ -76,6 +76,10 @@ export interface CompanyListItem {
   eik: string | null;
   eikValid: boolean;
   hasEik: boolean;
+  /** True for sole-trader / natural-person rows whose ЕИК + name have been masked by
+   *  `toCompanyListItem` (PR #183, ydimitrof review 2026-08-31). Surfaces a single privacy signal
+   *  consumers can branch on without re-comparing the masking label or the source name. */
+  masked: boolean;
   ownershipKind: OwnershipKind | null;
   settlement: string | null;
   sector: SectorRef | null; // primary sector

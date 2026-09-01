@@ -114,6 +114,52 @@ describe('toCompanyListItem — privacy masking on the leaderboard list (PR #183
     expect(item.hasEik).toBe(false);
   });
 
+  it('keeps the masking signal consistent across eik / eikValid / hasEik / masked (ydimitrof review 2026-08-31, threads #2 + #7)', () => {
+    // Thread on rows.ts:80: for a masked row the rollup bit `eik_valid === 1` must follow `hasEik`
+    // — a consumer that sees `eik: null, hasEik: false, eikValid: true` would render a „валиден
+    // ЕИК" badge next to an empty value. The mapper is the single source of truth and must
+    // produce a payload that is self-consistent for any masked row.
+    //
+    // Thread on rows.ts:74 + apps/web/app/routes/companies.tsx:84: the mapper exposes a `masked`
+    // boolean alongside the masking label so consumers can branch on a flag instead of
+    // string-comparing the label. The flag is set ONLY on the natural-person branch (and never
+    // on legal-entity or consortium branches, which are not masked).
+    const natural = toCompanyListItem({
+      ...baseRow,
+      name: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ',
+      legal_form: 'ЕТ',
+    });
+    expect(natural.masked).toBe(true);
+    expect(natural.eik).toBeNull();
+    expect(natural.eikValid).toBe(false);
+    expect(natural.hasEik).toBe(false);
+
+    // The `eikValid: false` change must NOT regress the legal-entity branch: a legal entity with
+    // a valid ЕИК keeps `eikValid: true` and `masked: false`.
+    const legal = toCompanyListItem({
+      ...baseRow,
+      name: 'СТРОЙ ООД',
+      legal_form: 'ООД',
+    });
+    expect(legal.masked).toBe(false);
+    expect(legal.eik).toBe('121817309');
+    expect(legal.eikValid).toBe(true);
+    expect(legal.hasEik).toBe(true);
+
+    // The consortium branch is NOT masked either — `masked` stays false even when the name starts
+    // with "ЕТ " (mirrors the `kind !== 'consortium'` guard on the natural-person branch).
+    const consortium = toCompanyListItem({
+      ...baseRow,
+      kind: 'consortium',
+      name: 'ЕТ Иван Петров; Строй ООД',
+      legal_form: null,
+      eik: '200000000',
+    });
+    expect(consortium.masked).toBe(false);
+    expect(consortium.eik).toBe('200000000');
+    expect(consortium.eikValid).toBe(true);
+  });
+
   it('masks on the leading-ЕТ name heuristic when legal_form is null', () => {
     // Same pattern CSV streamer guards with: a row whose name starts with "ЕТ " but lacks a
     // legal_form value still trips the predicate.

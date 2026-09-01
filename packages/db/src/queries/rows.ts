@@ -67,6 +67,18 @@ export function toCompanyListItem(r: CompanyTotalsRow): CompanyListItem {
   // The unmasked name is also held back from `displayName`: a masked row must read "Частно лице"
   // everywhere on the list page (and on the home page) — exposing the masked `displayName` next
   // to a null ЕИК would let a crawler infer the natural-person class without needing the ЕИК.
+  //
+  // `eikValid` is the ЕИК-validation bit from the rollup (`r.eik_valid === 1`). For a masked row
+  // the ЕИК is intentionally nullified, so the bit must follow `hasEik` — a consumer that sees
+  // `eik: null, hasEik: false, eikValid: true` would render a "валиден ЕИК" badge next to an
+  // empty value (ydimitrof review 2026-08-31, thread on packages/db/src/queries/rows.ts:80). The
+  // bit is masked in lock-step with the field so the payload stays internally consistent.
+  //
+  // The `masked` boolean surfaces the same privacy signal as the `MASKED_NATURAL_PERSON_LABEL`
+  // label and the null ЕИК, so callers can branch on a single source-of-truth instead of
+  // comparing the masking label string (which is brittle to label changes or mapper moves —
+  // ydimitrof review 2026-08-31, thread on apps/web/app/routes/companies.tsx:84). The flag is
+  // set here, where the masking actually happens; consumers just read it.
   const isNaturalPerson =
     r.kind !== 'consortium' && isNaturalPersonBidder(cleanName(r.name), r.legal_form);
   const name = isNaturalPerson ? MASKED_NATURAL_PERSON_LABEL : cleanName(r.name);
@@ -77,8 +89,9 @@ export function toCompanyListItem(r: CompanyTotalsRow): CompanyListItem {
     kind: r.kind,
     isConsortium: r.kind === 'consortium',
     eik: isNaturalPerson ? null : r.eik,
-    eikValid: r.eik_valid === 1,
+    eikValid: isNaturalPerson ? false : r.eik_valid === 1,
     hasEik: isNaturalPerson ? false : r.eik_valid === 1 && Boolean(r.eik),
+    masked: isNaturalPerson,
     ownershipKind: r.ownership_kind,
     settlement: r.settlement,
     sector: sectorRef(r.primary_sector),
