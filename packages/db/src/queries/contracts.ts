@@ -444,7 +444,6 @@ interface CsvRow extends ContractRow {
   rowid: number;
   authority_eik: string;
   contractor_eik: string | null;
-  bidder_legal_form: string | null;
 }
 
 /** A streamed text/csv Response honouring the same filters; a 190k-row export never materialises. */
@@ -462,8 +461,7 @@ export function streamContractsCsv(db: D1Database, p: ContractListParams): Respo
     async pull(controller) {
       if (done) return;
       const where = filters.sql ? filters.sql + ' AND c.rowid > ?' : ' WHERE c.rowid > ?';
-      const sql = `${SELECT}, c.rowid AS rowid, a.bulstat AS authority_eik, b.eik_normalized AS contractor_eik,
-        b.legal_form AS bidder_legal_form
+      const sql = `${SELECT}, c.rowid AS rowid, a.bulstat AS authority_eik, b.eik_normalized AS contractor_eik
         ${FROM}${where} ORDER BY c.rowid LIMIT ?`;
       const { results } = await db
         .prepare(sql)
