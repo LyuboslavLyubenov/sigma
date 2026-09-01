@@ -4,6 +4,7 @@ import { contractIdFromSlug, getContract, getDb } from '@sigma/db';
 import type { Route } from './+types/contract.json';
 import { publicCache } from '../lib/cache';
 import { withDataSource } from '../lib/dataSource';
+import { markPrivacyMaskApplied } from '../lib/security';
 import { serializeJsonForScript } from '../lib/json-ld';
 
 /**
@@ -88,6 +89,13 @@ export async function loader({ params, context }: Route.LoaderArgs) {
     'X-Content-Type-Options': 'nosniff',
     'Cache-Control': publicCache(3600),
   });
-  if (masked !== record) headers.set('X-Robots-Tag', 'noindex');
+  // Stamp the privacy-mask marker; the worker `hardenResponse` translates it into
+  // `X-Robots-Tag: noindex` and removes the marker before the response reaches the edge cache or
+  // the client (ADR-0040 — единственото авторско място за `X-Robots-Tag` е worker-ът). Writing the
+  // public header directly here would have worked (the worker doesn't duplicate it), but it
+  // violates the documented policy and ADR-0040 explicitly calls contract.json.tsx a route that
+  // only "маркира отговора" (ydimitrof review 2026-08-31, thread on
+  // apps/web/app/routes/contract.json.tsx:91).
+  if (masked !== record) markPrivacyMaskApplied(headers);
   return withDataSource(new Response(serializeJsonForScript(publicRecord), { headers }));
 }

@@ -216,13 +216,17 @@ describe('contract.json loader', () => {
     vi.mocked(getContract).mockReset();
   });
 
-  it('masks a sole trader and sets X-Robots-Tag: noindex (behavior 1)', async () => {
+  it('masks a sole trader, stamps the privacy marker, and lets the worker translate it to noindex (behavior 1)', async () => {
     vi.mocked(getContract).mockResolvedValueOnce(makeRecord());
 
     const response = await loader(loaderArgs('c-1'));
 
     expect(response.status).toBe(200);
-    expect(response.headers.get('X-Robots-Tag')).toBe('noindex');
+    // The route stamps the INTERNAL privacy-mask marker — the public `X-Robots-Tag: noindex`
+    // header is the worker's job (ADR-0040). The loader never writes `X-Robots-Tag` itself
+    // (ydimitrof review 2026-08-31, thread on apps/web/app/routes/contract.json.tsx:91).
+    expect(response.headers.get('X-Privacy-Mask')).toBe('applied');
+    expect(response.headers.get('X-Robots-Tag')).toBeNull();
     expect(response.headers.get('X-Content-Type-Options')).toBe('nosniff');
     const body = (await response.json()) as {
       bidder: { eik: string | null; name: string; displayName: string };
