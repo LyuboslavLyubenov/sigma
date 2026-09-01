@@ -158,6 +158,54 @@ describe('stripSqlCommentsAndCollapse', () => {
     const statements = stripSqlCommentsAndCollapse(sql);
     expect(statements).toEqual([`SELECT * FROM beginning WHERE x = 1`, `SELECT 2`]);
   });
+
+  // ydimitrof review 2026-08-31 (thread on fixtures.ts:84): the previous BEGIN keyword guard
+    // fired whenever the char after `BEGIN` was not an identifier character, which also matched
+    // `BEGIN;` (next char is `;`) and `BEGIN TRANSACTION;` (next char is whitespace). Both are
+    // valid transaction openers in SQLite/D1, and a future migration / seed wrapped in
+    // `BEGIN; … COMMIT;` would silently drop the entire buffer (blockDepth stays 1 through
+    // COMMIT, and the EOF flush guard `if (buf.trim() && blockDepth === 0)` discards it). The
+    // scanner must distinguish transactions (do NOT open a block) from trigger bodies (DO open
+    // a block). The DDL today does not contain `BEGIN;`/`BEGIN TRANSACTION;`, so this is a
+    // latent bug — but the lane auto-discovers future migrations, so the guard is necessary.
+    it('treats `BEGIN;` as a transaction (not a trigger body) — does NOT open a block', () => {
+      const sql = `BEGIN;\nINSERT INTO t (v) VALUES (1);\nCOMMIT;\n`;
+      const statements = stripSqlCommentsAndCollapse(sql);
+      expect(statements).toEqual([`BEGIN`, `INSERT INTO t (v) VALUES (1)`, `COMMIT`]);
+    });
+
+    it('treats `BEGIN TRANSACTION;` (and the deferred/immediate/exclusive variants) as a transaction — does NOT open a block', () => {
+      const sql = `BEGIN TRANSACTION;\nINSERT INTO t (v) VALUES (1);\nCOMMIT;\n`;
+      expect(stripSqlCommentsAndCollapse(sql)).toEqual([
+        `BEGIN TRANSACTION`,
+        `INSERT INTO t (v) VALUES (1)`,
+        `COMMIT`,
+      ]);
+
+      const deferred = `BEGIN DEFERRED;\nINSERT INTO t (v) VALUES (2);\nCOMMIT;\n`;
+      expect(stripSqlCommentsAndCollapse(deferred)).toEqual([
+        `BEGIN DEFERRED`,
+        `INSERT INTO t (v) VALUES (2)`,
+        `COMMIT`,
+      ]);
+
+      const immediate = `BEGIN IMMEDIATE;\nINSERT INTO t (v) VALUES (3);\nCOMMIT;\n`;
+      expect(stripSqlCommentsAndCollapse(immediate)).toEqual([
+        `BEGIN IMMEDIATE`,
+        `INSERT INTO t (v) VALUES (3)`,
+        `COMMIT`,
+      ]);
+    });
+
+    it('still treats `BEGIN SELECT …` as a trigger-body opener', () => {
+      // Sanity check that the transaction-classification guard did not regress the trigger-body
+      // case: `BEGIN` followed by anything OTHER than `;` or a transaction keyword must open a
+      // block (the original behaviour, preserved by the fix).
+      const sql = `CREATE TRIGGER t BEFORE INSERT ON s\nBEGIN\n  SELECT RAISE(ABORT, 'x');\nEND;\n`;
+      const statements = stripSqlCommentsAndCollapse(sql);
+      expect(statements.length).toBe(1);
+      expect(statements[0]).toMatch(/CREATE TRIGGER t[\s\S]*BEGIN[\s\S]*END/);
+    });
 });
 
 describe('buildContractsInsert', () => {
