@@ -212,6 +212,57 @@ describe('contract.data headers() — forwards the privacy mask marker', () => {
   });
 });
 
+// Server-only `bidder_legal_form` must NOT leak into the `.data` RRv7 single-fetch payload on
+// either the masked branch or the legal-entity / consortium passthrough branch (parity with
+// `contract.json.tsx`'s `stripServerOnlyFields`). The contract page loader is the OTHER
+// surface that ships the full ContractDetail in the single-fetch body — without the strip, the
+// natural-person classifier leaks verbatim to the client (ydimitrof review 2026-08-31, thread on
+// apps/web/app/routes/contract.tsx:139).
+describe('contract.data loader — strips the server-only bidder_legal_form field on every branch', () => {
+  it('does NOT carry bid_legal_form into the masked Response body', async () => {
+    const natural = makeRecord(); // bidder_legal_form = 'ЕТ' (sole trader)
+    vi.mocked(getContract).mockResolvedValueOnce(natural);
+
+    const result = await loader(loaderArgs('c-1'));
+    expect(result).toBeInstanceOf(Response);
+    const body = ((result as Response).clone ? await (result as Response).clone().json() : await (result as Response).json()) as Record<string, unknown>;
+
+    expect(body).not.toHaveProperty('bidder_legal_form');
+    const contract = body.contract as Record<string, unknown>;
+    expect(contract).not.toHaveProperty('bidder_legal_form');
+  });
+
+  it('does NOT carry bid_legal_form into the legal-entity passthrough body', async () => {
+    const legal = makeRecord({
+      bidder: {
+        slug: 'bidder-legal',
+        orderingUnit: null,
+        name: 'СОФАРМА ТРЕЙДИНГ АД',
+        displayName: 'СОФАРМА ТРЕЙДИНГ АД',
+        kind: 'company',
+        typeLabel: null,
+        settlement: 'Sofia',
+        eik: '121817309',
+        sector: null,
+        totalContracts: 1,
+        totalEur: 1000,
+      },
+      sourceNames: {
+        authority: 'Some Authority',
+        bidder: 'СОФАРМА ТРЕЙДИНГ АД',
+      },
+    });
+    legal.bidder_legal_form = 'АД';
+    vi.mocked(getContract).mockResolvedValueOnce(legal);
+
+    const result = await loader(loaderArgs('c-2'));
+    expect(result).not.toBeInstanceOf(Response);
+    const plain = result as { contract: Record<string, unknown> };
+
+    expect(plain.contract).not.toHaveProperty('bidder_legal_form');
+  });
+});
+
 // Worker-pipeline proof: the marker the loader sets must translate to X-Robots-Tag: noindex through
 // the real `applyPrivacyMaskHeaders` (the worker helper) and the marker must be stripped. This is the
 // contract the noindex guarantee depends on for both the HTML page and the `.data` twin.

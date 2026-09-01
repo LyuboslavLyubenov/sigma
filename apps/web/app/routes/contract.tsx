@@ -134,11 +134,25 @@ export async function loader({ params, context }: Route.LoaderArgs) {
     isNaturalPersonBidder(contract.bidder.name, contract.bidder_legal_form);
   if (isNatural) {
     contract.bidder.eik = null;
+    // Strip the server-only `bidder_legal_form` field before serialising the contract into the
+    // `.data` RRv7 single-fetch payload — the JSON resource route (`contract.json.tsx`) already
+    // does this via `stripServerOnlyFields` for parity (PR #183 review #2, "не бива да достига
+    // клиента"); the contract page loader must do the same for its `.data` twin or the
+    // natural-person classifier leaks verbatim next to the masked name in the single-fetch
+    // payload (ydimitrof review 2026-08-31, thread on apps/web/app/routes/contract.tsx:139).
+    // Same goes for the legal-entity / consortium passthrough branch below, which returns the
+    // `contract` object directly and otherwise carries `bidder_legal_form` for a legal entity too
+    // (a useless identifier-classifier next to a public name, so the strip is just hygiene).
+    const { bidder_legal_form: _omit, ...publicContract } = contract;
     const responseHeaders = new Headers({ 'Cache-Control': publicCache(3600) });
     markPrivacyMaskApplied(responseHeaders);
-    return Response.json({ contract }, { headers: responseHeaders });
+    return Response.json({ contract: publicContract }, { headers: responseHeaders });
   }
-  return { contract };
+  // Passthrough branch — strip the server-only field for parity with the masked branch above
+  // and with `contract.json.tsx` so a legal entity / consortium payload does not carry the
+  // classifier field into the `.data` twin.
+  const { bidder_legal_form: _omit, ...publicContract } = contract;
+  return { contract: publicContract };
 }
 
 // Coarse cohort bands only (never a fake-precise "топ 4.7%") - @sigma/db cohortBand only claims a
