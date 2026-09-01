@@ -1,7 +1,6 @@
 import { Link, useNavigation, useSearchParams } from 'react-router';
 import {
   count,
-  MASKED_NATURAL_PERSON_LABEL,
   money,
   moneyBare,
   parseConsortiumMembers,
@@ -47,20 +46,20 @@ export function meta({ matches }: Route.MetaArgs) {
 }
 
 export function headers({ loaderHeaders }: Route.HeadersArgs) {
-  // Forward the internal privacy-mask marker set by the loader on the `.data` Response. React
-  // Router's `getDocumentHeadersImpl` does not auto-propagate loader headers (only `Set-Cookie`),
-  // so the route must forward explicitly — without this the worker `hardenResponse` cannot
-  // translate the marker into `X-Robots-Tag: noindex` on the HTML response. (PR #183 review #1:
-  // the leaderboard list exposes masked sole-trader rows in `toCompanyListItem`; the marker
-  // ensures the .data twin — RRv7 single-fetch — also carries noindex when ANY row on the page
-  // is masked, so search engines don't surface the masked twin separately from the HTML.)
-  const headers: Record<string, string> = {
+  // The leaderboard HTML page is intentionally OUT of the noindex cascade: a single masked row on
+  // a page of otherwise indexable companies must not deindex the whole HTML list — masked rows
+  // render `MASKED_NATURAL_PERSON_LABEL` next to a null ЕИК, exposing no personally identifying
+  // information on the public HTML page. The privacy signal belongs ONLY on the `.data` RRv7
+  // single-fetch twin (where crawlers that ignore `<meta>` see the full payload). RRv7 serves
+  // the loader's Response directly on the `.data` URL without going through this `headers()`,
+  // so the marker on the Response reaches the worker `hardenResponse` -> `X-Robots-Tag: noindex`
+  // on the twin without any forwarding here. The route `headers()` only governs the HTML doc,
+  // and the HTML doc does not need noindex (ydimitrof review 2026-08-31, thread on
+  // apps/web/app/routes/companies.tsx:61). Cache-Control stays on every HTML response so the
+  // edge cache stays warm for the leaderboard page.
+  return {
     'Cache-Control': loaderHeaders.get('Cache-Control') ?? publicCache(1800),
   };
-  if (loaderHeaders.get('X-Privacy-Mask') === 'applied') {
-    headers['X-Privacy-Mask'] = 'applied';
-  }
-  return headers;
 }
 
 export async function loader({ request, context }: Route.LoaderArgs) {
@@ -80,8 +79,12 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // `toCompanyListItem` mapper (sole trader / natural person), stamp the privacy-mask marker so
   // the worker `hardenResponse` translates it into `X-Robots-Tag: noindex` on the `.data` twin
   // (RRv7 single-fetch). The marker is internal — it never reaches the client. Mirrors the
-  // company-detail loader's per-row marker pattern.
-  if (page.items.some((c) => c.name === MASKED_NATURAL_PERSON_LABEL)) {
+  // company-detail loader's per-row marker pattern. The detection reads the `masked` boolean
+  // the mapper sets on the same branch (ydimitrof review 2026-08-31, thread on
+  // apps/web/app/routes/companies.tsx:84) instead of string-comparing `MASKED_NATURAL_PERSON_LABEL`
+  // — the flag is the single source-of-truth for the masking signal, kept in lock-step with the
+  // label and the null ЕИК inside `toCompanyListItem`.
+  if (page.items.some((c) => c.masked)) {
     return Response.json({ page, facets, coverage }, { headers: { 'X-Privacy-Mask': 'applied' } });
   }
   return { page, facets, coverage };
@@ -161,7 +164,18 @@ export default function Companies({ loaderData }: Route.ComponentProps) {
       isTitle: true,
       cell: (c) => (
         <>
-          <Link to={`/companies/${c.slug}`}>{c.displayName}</Link>
+          {/* Masked (sole-trader / natural-person) rows must NOT render the ЕИК in any href on
+              the public HTML page: `companySlug` for `eik:<digits>` returns the digits verbatim,
+              so an `<Link to={"/companies/${c.slug}">` would advertise the natural-person's
+              ЕИК on every masked row of the leaderboard — defeating the point of the masking
+              (ydimitrof review 2026-08-31, thread on packages/db/src/queries/rows.ts:74). Render
+              the masked name as a non-link `<span>` so the row is reachable only via search or
+              from a contract whose bidder they are (the contract page itself is noindexed). */}
+          {c.masked ? (
+            <span>{c.displayName}</span>
+          ) : (
+            <Link to={`/companies/${c.slug}`}>{c.displayName}</Link>
+          )}
           <br />
           <span className="small muted">{subtitle(c)}</span>
         </>
