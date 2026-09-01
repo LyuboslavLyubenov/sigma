@@ -42,7 +42,7 @@ Issue `#94` поиска работна интеграционна лента з
 
 ### 3. Ръчна стъпка за миграциите
 
-`wrangler.getPlatformProxy({ configPath })` **не** извиква `wrangler d1 migrations apply` — applier-ът живее в CLI командата и не е експортнат от `wrangler` (проверено в `cli.d.ts:3540`). Това означава, че свеж D1 стартира с **0 таблици**.
+`wrangler.getPlatformProxy({ configPath })` **не** извиква `wrangler d1 migrations apply` — applier-ът живее в CLI командата и не е експортнат от публичното API на `wrangler` (verified срещу `wrangler@4.93.1`, който е текущо инсталираната версия; конкретният ред в `cli.d.ts` е крехък спрямо бъдещи bump-ове и затова не се цитира тук — ydimitrof review 2026-08-31, thread on integration-testing.md:33). Това означава, че свеж D1 стартира с **0 таблици**.
 
 Допълнително, `proxy.env.DB.exec(...)` **не приема** миграционните файлове директно (`packages/db/migrations/0000_init.sql`): не приема SQL, започващ с `--` line comment-и, и не приема многоредови `CREATE TABLE (...)`. Затова `apps/web/test/integration/setup.ts` имплементира **минимален SQL препроцесор** (~30 реда, без нови зависимости): strip-ва `--` line-ове, collapse-ва whitespace, сплит-ва по `;` (с коректно третиране на string literals) и пуска `DB.exec(statement)` за всеки отделен statement.
 
@@ -63,7 +63,7 @@ Issue `#94` поиска работна интеграционна лента з
 `apps/web/test/integration/global-setup.ts` (vitest `globalSetup`) и/или `setup.ts` (lazy per-test-file bootstrap) имплементират малка, **повторяема** фикстура:
 
 - 1 authority (`auth:BG000000000`), 1 bidder (`eik:BG000000001`), 1 tender (`t:FIX-1`).
-- 30 договора в `contracts` с **строго намаляващ** `amount_eur` (`30000+1`, `29000+2`, …, `1000+30`, т.е. `amount = (n - i + 1) * 1000 + i` в `buildContractsInsert`), за да може pagination regression-а да асъртва monotone decreasing стойности.
+- 30 договора в `contracts` с **строго намаляващ** `amount_eur` (`30001`, `29002`, …, `1030`, т.е. `amount = (n - i + 1) * 1000 + i` в `buildContractsInsert`), за да може pagination regression-а да асъртва monotone decreasing стойности.
 - По 1 ред в `home_totals`, `authority_totals`, `company_totals`, `data_freshness` — за да има смислена първа страница за `sitemap-authorities.xml`, `sitemap-companies.xml` и `/`.
 - `INSERT OR IGNORE` навсякъде — фикстурата е идемпотентна и не чупи повторни пускания в рамките на един worker process.
 
