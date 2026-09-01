@@ -68,7 +68,7 @@ export function stripSqlCommentsAndCollapse(raw: string): string[] {
 
     // BEGIN…END block tracking (SQLite trigger bodies). Only BEGIN/END at the keyword boundary
     // counts — a column named `begin_date` or `end_at`, or an identifier like `beginning` /
-    // `endtime`, is unaffected because we match on token boundaries (preceding whitespace + the
+    // endtime, is unaffected because we match on token boundaries (preceding whitespace + the
     // next char is NOT a word character). The boundary class is `[A-Za-z0-9_]` — case-insensitive
     // — because SQL keywords are case-insensitive but identifiers are case-sensitive, so a
     // lowercase letter after the upper-cased keyword tail IS still an identifier boundary (e.g.
@@ -78,14 +78,45 @@ export function stripSqlCommentsAndCollapse(raw: string): string[] {
     // statement when the matching `END` is seen. Splitting intra-block `;` into separate
     // statements would break the trigger (the inner `SELECT RAISE(...)` is only valid inside
     // the trigger body, not as a top-level statement D1 can exec).
+    //
+    // Distinguishing transaction `BEGIN;` / `BEGIN TRANSACTION;` from a trigger `BEGIN … END`:
+    // a transaction keyword is either terminated immediately (`BEGIN;`) or followed by a
+    // transaction-only keyword (`BEGIN TRANSACTION`, `BEGIN DEFERRED`, …) — none of which open a
+    // block. The previous logic opened a block whenever the char after `BEGIN` was not an
+    // identifier character, which also matched `BEGIN;` / `BEGIN TRANSACTION` / `BEGIN COMMIT`
+    // (whitespace or `;` are not identifier chars). With SQLite/D1, a `BEGIN; … COMMIT;`
+    // migration or seed is valid SQL and the scanner MUST NOT treat it as an open block — a
+    // future migration that uses transactions would be silently dropped by `blockDepth > 0` at
+    // the final flush (ydimitrof review 2026-08-31, thread on fixtures.ts:84). The fix peeks
+    // past whitespace after `BEGIN`: if the next non-whitespace char is `;` or a transaction-
+    // only keyword (`TRANSACTION`, `DEFERRED`, `IMMEDIATE`, `EXCLUSIVE`), this is a transaction
+    // and DOES NOT open a block. Otherwise it is a trigger body and DOES open one.
     const atWordStart = /[\s]/.test(buf.slice(-1)) || buf.length === 0;
     if (atWordStart) {
       const tail = raw.slice(i, i + 5).toUpperCase();
       if (tail.startsWith('BEGIN') && !/[A-Z0-9_]/i.test(raw[i + 5] ?? '')) {
-        blockDepth++;
-        buf += raw.slice(i, i + 5);
-        i += 4;
-        continue;
+        // Look past any whitespace after `BEGIN` to decide trigger-body vs transaction.
+        const afterBegin = raw.slice(i + 5);
+        const wsSkip = afterBegin.match(/^\s*/)?.[0] ?? '';
+        const nextCharIdx = i + 5 + wsSkip.length;
+        const nextChar = raw[nextCharIdx] ?? '';
+        if (nextChar === ';') {
+          // `BEGIN;` — transaction. Do NOT open a block; fall through to the char-append
+          // path and let the next iteration's separator handling flush the statement.
+        } else {
+          const tailAfter = raw.slice(nextCharIdx, nextCharIdx + 12);
+          const isTransactionKw = /^[\s]*(?:TRANSACTION|DEFERRED|IMMEDIATE|EXCLUSIVE)\b/i.test(
+            tailAfter,
+          );
+          if (!isTransactionKw) {
+            blockDepth++;
+            buf += raw.slice(i, i + 5);
+            i += 4;
+            continue;
+          }
+          // `BEGIN TRANSACTION;` (and the deferred/immediate/exclusive variants) — transaction.
+          // Fall through to the char-append path.
+        }
       }
       if (tail.startsWith('END') && !/[A-Z0-9_]/i.test(raw[i + 3] ?? '')) {
         if (blockDepth > 0) {
