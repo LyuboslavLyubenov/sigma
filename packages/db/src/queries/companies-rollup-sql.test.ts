@@ -107,9 +107,13 @@ describe('listCompanies on real SQLite — rollup branch must include legal_form
   it('masks a sole trader (legal_form=ЕТ) on the rollup branch — ЕИК null + label replaced', async () => {
     const { db } = realDb();
     const page = await listCompanies(db, {});
-    const et = page.items.find((i) => i.slug === '999000111');
+    // Pre-fix the slug was the bare ЕИК (a privacy leak: masked rows still advertised the ЕИК on
+    // /companies.data and in the hydration stream). Now the slug is an opaque `m<base64(bidder_id)>`
+    // token — find the masked row by its masking signal instead.
+    const et = page.items.find((i) => i.masked && i.eik === null);
     expect(et).toBeDefined();
-    expect(et?.eik).toBeNull();
+    expect(et?.slug).not.toBe('999000111');
+    expect(et?.slug).not.toMatch(/^\d{9}(\d{4})?$/);
     expect(et?.name).toBe(MASKED_NATURAL_PERSON_LABEL);
     expect(et?.displayName).toBe(MASKED_NATURAL_PERSON_LABEL);
     expect(et?.hasEik).toBe(false);
@@ -147,7 +151,8 @@ describe('listCompanies on real SQLite — rollup branch must include legal_form
     const eikIdx = header.indexOf('eik');
     const nameIdx = header.indexOf('name');
 
-    const etFromList = page.items.find((i) => i.slug === '999000111');
+    // Find the masked list row by its masking signal — the slug is now opaque for masked rows.
+    const etFromList = page.items.find((i) => i.masked && i.eik === null);
     expect(etFromList?.name).toBe(MASKED_NATURAL_PERSON_LABEL);
     expect(etFromList?.eik).toBeNull();
 

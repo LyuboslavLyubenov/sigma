@@ -14,7 +14,7 @@ import {
   entityName,
   isNaturalPersonBidder,
 } from '@sigma/shared';
-import { authoritySlug, companySlug } from './identity';
+import { authoritySlug, companySlug, maskedCompanySlug } from './identity';
 import { sectorRef } from './sectors';
 
 // Friendly authority type_group → display label (the bucket keys are themselves Bulgarian words;
@@ -79,11 +79,20 @@ export function toCompanyListItem(r: CompanyTotalsRow): CompanyListItem {
   // comparing the masking label string (which is brittle to label changes or mapper moves —
   // ydimitrof review 2026-08-31, thread on apps/web/app/routes/companies.tsx:84). The flag is
   // set here, where the masking actually happens; consumers just read it.
+  //
+  // The `slug` is also opaque for masked rows — `companySlug('eik:<digits>')` returns the digits
+  // verbatim, so a masked eik-keyed row's slug would still carry the natural-person's ЕИК into
+  // the `/companies.data` machine-readable twin (RRv7 single-fetch turbo-stream) and the
+  // hydration payload of the public indexable leaderboard, defeating the mask. `maskedCompanySlug`
+  // is a one-way token (no ЕИК, no name, non-round-trippable; `bidderIdFromSlug` returns null) so
+  // the masked profile stays reachable only via direct URL or a noindexed contract-page backlink
+  // — never via a clickable href on the public leaderboard. lyubomir-bozhinov review 2026-09-02,
+  // thread on packages/db/src/queries/rows.ts:86.
   const isNaturalPerson =
     r.kind !== 'consortium' && isNaturalPersonBidder(cleanName(r.name), r.legal_form);
   const name = isNaturalPerson ? MASKED_NATURAL_PERSON_LABEL : cleanName(r.name);
   return {
-    slug: companySlug(r.bidder_id),
+    slug: isNaturalPerson ? maskedCompanySlug(r.bidder_id) : companySlug(r.bidder_id),
     name,
     displayName: isNaturalPerson ? MASKED_NATURAL_PERSON_LABEL : entityName(name, r.kind),
     kind: r.kind,

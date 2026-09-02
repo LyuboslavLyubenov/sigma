@@ -29,6 +29,18 @@ export function companySlug(bidderId: string): string {
   return bidderId;
 }
 
+/** bidder id → opaque `/companies/:slug` segment for masked natural-person / sole-trader rows on
+ * the leaderboard list and home top-10. Unlike `companySlug`, this is a one-way token: it does
+ * NOT round-trip to a `bidder_id` via `bidderIdFromSlug` — masked rows are not linkable from the
+ * public leaderboard by design (their masked profile is reachable only via direct URL or from a
+ * noindexed contract page). The `m` prefix distinguishes it from `n` (name-keyed, round-trippable)
+ * and from bare ЕИК digits so `bidderIdFromSlug` returns null. Stable across rebuilds (depends only
+ * on the bidder id, which is the only stable input on a masked row — the name is masked, the ЕИК
+ * is nulled). lyubomir-bozhinov review 2026-09-02, thread on packages/db/src/queries/rows.ts:86. */
+export function maskedCompanySlug(bidderId: string): string {
+  return 'm' + b64urlEncode(bidderId);
+}
+
 /** `/companies/:slug` segment → bidder id, or null if it cannot be decoded. */
 export function bidderIdFromSlug(slug: string): string | null {
   if (EIK_RE.test(slug)) return 'eik:' + slug;

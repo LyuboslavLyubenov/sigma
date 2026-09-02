@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { MASKED_NATURAL_PERSON_LABEL } from '@sigma/shared';
+import { bidderIdFromSlug } from './identity';
 import { toAuthorityListItem, toCompanyListItem, typeLabel } from './rows';
 
 describe('typeLabel', () => {
@@ -198,6 +199,64 @@ describe('toCompanyListItem — privacy masking on the leaderboard list (PR #183
     expect(item.eik).toBe('200000000');
     expect(item.name).toBe('ЕТ Иван Петров; Строй ООД');
     expect(item.isConsortium).toBe(true);
+  });
+
+  it('replaces the masked slug with an opaque, non-ЕИК token (lyubomir-bozhinov review 2026-09-02, thread on rows.ts:86)', () => {
+    // The slug for an eik:-keyed sole trader used to fall through `companySlug` verbatim — i.e. the
+    // bare ЕИК — and was serialised on /companies.data (RRv7 single-fetch turbo-stream, machine-readable
+    // twin of the leaderboard) and on the HTML hydration payload of the public indexable leaderboard.
+    // `masked` rows are rendered as a non-link <span> in companies.tsx already, but the slug itself
+    // still leaked the ЕИК to crawlers reading the JSON payload (the rendered HTML and the .data twin
+    // share the same loader, so the slug is in both responses). The mapper must produce a slug that:
+    //   (a) does NOT decode to a valid bidder_id via bidderIdFromSlug (the slug is opaque, not
+    //       URL-resolvable — masked rows are not linkable from the leaderboard by design);
+    //   (b) is stable across rebuilds (depends only on the bidder id, so the same masked row on a
+    //       later page or a different sort produces the same opaque token — required for the
+    //       React `key` prop on DataTable rows in companies.tsx:249);
+    //   (c) does NOT contain the ЕИК digits verbatim (a consumer that greps the response for
+    //       \\d{9,13} would otherwise still find the masked row's identifier).
+    const natural = toCompanyListItem({
+      ...baseRow,
+      name: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ',
+      legal_form: 'ЕТ',
+    });
+    expect(natural.masked).toBe(true);
+    // (a) opaque — does not round-trip to the original bidder id.
+    expect(bidderIdFromSlug(natural.slug)).toBeNull();
+    // (c) does not contain the ЕИК digits in any form.
+    expect(natural.slug).not.toContain('121817309');
+    expect(natural.slug).not.toMatch(/^\d{9}(\d{4})?$/);
+    // Stability: the same bidder id always yields the same opaque slug, regardless of the mask
+    // branch's other inputs.
+    const sameRow = toCompanyListItem({
+      ...baseRow,
+      name: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ',
+      legal_form: 'ЕТ',
+    });
+    expect(sameRow.slug).toBe(natural.slug);
+
+    // The legal-entity branch is untouched — its slug is still the bare ЕИК (round-trippable).
+    const legal = toCompanyListItem({
+      ...baseRow,
+      name: 'СТРОЙ ООД',
+      legal_form: 'ООД',
+    });
+    expect(legal.masked).toBe(false);
+    expect(legal.slug).toBe('121817309');
+    expect(bidderIdFromSlug(legal.slug)).toBe('eik:121817309');
+
+    // The consortium branch is also untouched.
+    const consortium = toCompanyListItem({
+      ...baseRow,
+      bidder_id: 'eik:200000000',
+      kind: 'consortium',
+      name: 'ЕТ Иван Петров; Строй ООД',
+      legal_form: null,
+      eik: '200000000',
+    });
+    expect(consortium.masked).toBe(false);
+    expect(consortium.slug).toBe('200000000');
+    expect(bidderIdFromSlug(consortium.slug)).toBe('eik:200000000');
   });
 });
 

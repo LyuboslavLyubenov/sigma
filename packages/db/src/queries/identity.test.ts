@@ -8,6 +8,7 @@ import {
   contractIdFromSlug,
   contractSlug,
   hrefForEntity,
+  maskedCompanySlug,
   personIdFromSlug,
   personSlug,
 } from './identity';
@@ -128,6 +129,43 @@ describe('person slug (свързани лица)', () => {
   });
   it('returns null for an undecodable slug rather than throwing', () => {
     expect(personIdFromSlug('!!!not base64!!!')).toBeNull();
+  });
+});
+
+describe('masked company slug (PR #183 review — lyubomir-bozhinov 2026-09-02, thread on rows.ts:86)', () => {
+  // Opaque slug for masked sole-trader / natural-person rows on /companies + /companies.data +
+  // home top-10. Unlike `companySlug`, it does NOT round-trip — masked rows are not linkable from
+  // the leaderboard by design (their masked profile is reachable only via direct URL or from the
+  // contract page, both of which are noindexed). The `m` prefix distinguishes it from `n`
+  // (name-keyed, round-trippable) and from bare ЕИК digits; bidderIdFromSlug returns null for it.
+  it('prefixes opaque tokens with `m` so they cannot collide with name-keyed (`n`) or ЕИК slugs', () => {
+    expect(maskedCompanySlug('eik:121817309').startsWith('m')).toBe(true);
+    expect(maskedCompanySlug('eik:121817309')).not.toBe(companySlug('eik:121817309'));
+  });
+  it('does NOT decode to a bidder id via bidderIdFromSlug (one-way, by design)', () => {
+    const slug = maskedCompanySlug('eik:121817309');
+    expect(bidderIdFromSlug(slug)).toBeNull();
+  });
+  it('does NOT contain the bare ЕИК digits', () => {
+    const slug = maskedCompanySlug('eik:121817309');
+    expect(slug).not.toContain('121817309');
+    expect(slug).not.toMatch(/^\d{9}(\d{4})?$/);
+  });
+  it('is stable — same bidder id yields the same opaque token', () => {
+    const a = maskedCompanySlug('eik:121817309');
+    const b = maskedCompanySlug('eik:121817309');
+    expect(a).toBe(b);
+  });
+  it('is unique per bidder id', () => {
+    const a = maskedCompanySlug('eik:121817309');
+    const b = maskedCompanySlug('eik:999999999');
+    expect(a).not.toBe(b);
+  });
+  it('handles name-keyed bidder ids the same way (no key/name leaks in the slug)', () => {
+    const slug = maskedCompanySlug('name:НИКОЛАЙ КИРОВ');
+    expect(bidderIdFromSlug(slug)).toBeNull();
+    expect(slug).not.toContain('НИКОЛАЙ');
+    expect(slug).not.toContain('КИРОВ');
   });
 });
 
