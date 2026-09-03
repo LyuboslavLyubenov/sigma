@@ -397,6 +397,10 @@ export interface FlowPair {
   bidderName: string;
   bidderDisplayName: string;
   bidderKind: EntityKind;
+  /** True for sole-trader / natural-person pairs whose ЕИК + name have been masked by the flows
+    // mapper (PR #183, lyubomir-bozhinov review 2026-09-02). Consumers branch on this single
+    // source-of-truth rather than string-comparing the masking label. */
+  masked: boolean;
   wonEur: number;
   contracts: number;
 }
@@ -622,6 +626,10 @@ export interface CompetitionPair {
   bidderName: string;
   bidderDisplayName: string;
   bidderKind: EntityKind;
+  /** True for sole-trader / natural-person pairs whose ЕИК + name have been masked by the
+    // competition mapper (PR #183, lyubomir-bozhinov review 2026-09-02). Consumers branch on
+    // this single source-of-truth rather than string-comparing the masking label. */
+  masked: boolean;
   contracts: number;
   wonEur: number;
 }
