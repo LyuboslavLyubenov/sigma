@@ -1,5 +1,5 @@
 import { Link, useNavigation, useSearchParams } from 'react-router';
-import { MASKED_NATURAL_PERSON_LABEL, count, date, money, moneyBare } from '@sigma/shared';
+import { count, date, money, moneyBare } from '@sigma/shared';
 import { contractsSummary, getContractFacets, listContracts, getDb } from '@sigma/db';
 import type { Route } from './+types/contracts';
 import { Breadcrumbs } from '../components/Breadcrumbs';
@@ -78,8 +78,12 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     // mapper (sole trader / natural person), stamp the privacy-mask marker so the worker
     // `hardenResponse` translates it into `X-Robots-Tag: noindex` on the `.data` twin (RRv7
     // single-fetch). The marker is internal — it never reaches the client. Mirrors the
-    // company-detail loader's per-row marker pattern.
-    if (result.items.some((c) => c.bidderName === MASKED_NATURAL_PERSON_LABEL)) {
+    // company-detail loader's per-row marker pattern. The detection reads the `masked`
+    // boolean the mapper sets on the same branch (lyubomir-bozhinov review 2026-09-02,
+    // thread on packages/db/src/queries/rows.ts:86) instead of string-comparing
+    // `MASKED_NATURAL_PERSON_LABEL` — the flag is the single source-of-truth for the masking
+    // signal, kept in lock-step with the label and the opaque slug inside `toItem`.
+    if (result.items.some((c) => c.masked)) {
       return Response.json({ result, facets }, { headers: { 'X-Privacy-Mask': 'applied' } });
     }
     return { result, facets };
@@ -264,7 +268,25 @@ export default function Contracts({ loaderData }: Route.ComponentProps) {
                             <span className="who">възложител</span>
                           </span>
                           <span className="to">
-                            <Link to={`/companies/${c.bidderSlug}`}>{c.bidderDisplayName}</Link>{' '}
+                            {/* Masked (sole-trader / natural-person) rows on the contract list —
+                                which is noindexed when ANY row on the page is masked (the loader
+                                stamps `X-Privacy-Mask` for the worker `hardenResponse` to translate
+                                to `X-Robots-Tag: noindex` on the `.data` twin) — must STILL render
+                                as a non-link `<span>`: the masked profile's opaque slug is
+                                non-resolvable by design, and rendering it as a `<Link>` would either
+                                leak the pre-fix bare ЕИК or 404 against the new opaque form. Same
+                                invariant as companies.tsx:174-178 + home.tsx:63-199 — the masked profile
+                                is reachable only via direct URL or a noindexed contract-page backlink
+                                (none of those exist for /contracts, since every contract page that
+                                lists a masked bidder is itself noindexed via the masked-bidder
+                                detection in the contract page's loader, mirroring
+                                company.tsx:50-58). lyubomir-bozhinov review 2026-09-02, thread on
+                                packages/db/src/queries/rows.ts:86 (extended to the contract mapper). */}
+                            {c.masked ? (
+                              <span>{c.bidderDisplayName}</span>
+                            ) : (
+                              <Link to={`/companies/${c.bidderSlug}`}>{c.bidderDisplayName}</Link>
+                            )}{' '}
                             <span className="who">изпълнител</span>
                           </span>
                         </td>
