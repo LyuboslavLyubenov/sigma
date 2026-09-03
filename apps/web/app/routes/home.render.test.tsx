@@ -5,11 +5,17 @@
 // companies.tsx:174) and extended to home.tsx by lyubomir-bozhinov review 2026-09-02 (the
 // "summary" reference in the rows.ts:86 thread). The top-10 is public and indexable — a masked
 // row's name must render as a non-link <span> just like on /companies.
+//
+// The home single-offer tables (`recentSingleOffer`, `topSingleOffer`) share the same invariant
+// — they are public + indexable and use the same `toItem` contract mapper that the contract
+// leaderboard uses. The mapper now sets `masked: true` and swaps `bidderSlug` for the opaque
+// `m<base64(bidder_id)>` token (lyubomir-bozhinov review 2026-09-02, extended from the
+// rows.ts:86 thread to the contract mapper). The same `<span>`/`<Link>` ternary applies.
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { createRoutesStub } from 'react-router';
-import type { CompanyListItem } from '@sigma/api-contract';
+import type { CompanyListItem, ContractListItem } from '@sigma/api-contract';
 import Home, { headers } from './home';
 import { getHomeData } from '@sigma/db';
 
@@ -162,5 +168,66 @@ describe('home.render — masked sole-trader rows on the public top-10 (PR #183 
     const htmlHeaders = headers();
     expect('X-Privacy-Mask' in htmlHeaders).toBe(false);
     expect(htmlHeaders['Cache-Control']).toContain('s-maxage=');
+  });
+});
+
+function makeContractItem(overrides: Partial<ContractListItem> = {}): ContractListItem {
+  return {
+    id: 'c:1',
+    subject: 'S',
+    unp: 'UNP',
+    sectorCode: '45',
+    euFunded: false,
+    isConsortium: false,
+    authoritySlug: '123456786',
+    authorityName: 'Authority',
+    bidderSlug: '111111113',
+    bidderName: 'Bidder',
+    bidderDisplayName: 'Bidder',
+    bidderKind: 'company',
+    masked: false,
+    procedureLabel: 'Открита процедура',
+    signedAt: '2024-01-01',
+    bidsReceived: 3,
+    valueEur: 1000,
+    ...overrides,
+  };
+}
+
+describe('home.render — masked sole-trader rows on the home single-offer tables (PR #183 review — lyubomir-bozhinov 2026-09-02, extended from the rows.ts:86 thread)', () => {
+  it('renders the bidder as <span>, not <Link>, when the contract mapper has masked the row', async () => {
+    // The single-offer tables share `toItem()` with the /contracts leaderboard. After the
+    // mapping fix the masked row carries `masked: true` and an opaque `m<base64(bidder_id)>`
+    // bidderSlug — neither a working href (opaque slug is non-resolvable on purpose) nor a
+    // privacy-safe one (the pre-fix bare ЕИК would have leaked). The render must mirror the
+    // top-10 invariant: masked row → <span>, not <Link>.
+    const legal = makeContractItem();
+    const masked = makeContractItem({
+      bidderSlug: 'm' + Buffer.from('eik:121817309').toString('base64url'),
+      bidderName: 'Частно лице',
+      bidderDisplayName: 'Частно лице',
+      masked: true,
+    });
+    const loaderData = {
+      ...makeHomeData([]),
+      recentSingleOffer: [masked, legal],
+      topSingleOffer: [masked, legal],
+    };
+    vi.mocked(getHomeData).mockResolvedValueOnce(loaderData as never);
+    await renderHome(loaderData as never);
+
+    // The legal-entity row stays a working <Link> to its profile (one per table → two total).
+    const legalLinks = Array.from(container.querySelectorAll('a[href="/companies/111111113"]'));
+    expect(legalLinks).toHaveLength(2);
+
+    // The masked row must NOT be a link in either single-offer table. The label still renders.
+    const maskedLinks = Array.from(container.querySelectorAll('a[href^="/companies/m"]'));
+    expect(maskedLinks).toHaveLength(0);
+    // „Частно лице" appears twice (one per table) and never as link text.
+    const maskedAsLink = Array.from(container.querySelectorAll('a')).filter(
+      (a) => a.textContent === 'Частно лице',
+    );
+    expect(maskedAsLink).toHaveLength(0);
+    expect(container.textContent!.match(/Частно лице/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
   });
 });
