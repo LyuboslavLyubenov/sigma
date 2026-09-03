@@ -17,6 +17,7 @@ import {
   bidderIdFromSlug,
   companySlug,
   contractSlug,
+  maskedCompanySlug,
 } from './identity';
 import { filterSignature, keyset, pageCursors } from './keyset';
 import { lookup } from './lookup';
@@ -219,6 +220,18 @@ function toItem(r: ContractRow): ContractListItem {
   // (maskContractForPrivacy) covers /contracts/:id.json. This is the third surface. The
   // bidder_kind !== 'consortium' guard is required by isNaturalPersonBidder's docstring
   // (caller filters JVs).
+  //
+  // The `bidderSlug` is also opaque for masked rows — `companySlug('eik:<digits>')` returns the
+  // digits verbatim, so a masked eik-keyed row's slug would still carry the natural-person's ЕИК
+  // into the `/contracts.data` machine-readable twin (RRv7 single-fetch turbo-stream) and the
+  // hydration payload of the public indexable home single-offer tables. `maskedCompanySlug` is a
+  // one-way token (no ЕИК, no name, non-round-trippable; `bidderIdFromSlug` returns null) so the
+  // masked profile stays reachable only via direct URL or a noindexed contract-page backlink —
+  // never via a clickable href on the public HTML page. The `masked` flag surfaces the same
+  // privacy signal as the label, so consumers branch on a single source-of-truth instead of
+  // string-comparing `MASKED_NATURAL_PERSON_LABEL` (which is brittle to label changes or mapper
+  // moves — ydimitrof review 2026-08-31, thread on companies.tsx:84). lyubomir-bozhinov review
+  // 2026-09-02, thread on packages/db/src/queries/rows.ts:86 (extended to the contract mapper).
   const isNaturalPerson =
     r.bidder_kind !== 'consortium' && isNaturalPersonBidder(bidderName, r.bidder_legal_form);
   const maskedBidderName = isNaturalPerson ? MASKED_NATURAL_PERSON_LABEL : bidderName;
@@ -231,12 +244,13 @@ function toItem(r: ContractRow): ContractListItem {
     isConsortium: r.bidder_kind === 'consortium',
     authoritySlug: authoritySlug(r.authority_id),
     authorityName,
-    bidderSlug: companySlug(r.bidder_id),
+    bidderSlug: isNaturalPerson ? maskedCompanySlug(r.bidder_id) : companySlug(r.bidder_id),
     bidderName: maskedBidderName,
     bidderDisplayName: isNaturalPerson
       ? MASKED_NATURAL_PERSON_LABEL
       : entityName(maskedBidderName, r.bidder_kind),
     bidderKind: r.bidder_kind,
+    masked: isNaturalPerson,
     procedureLabel: procedureGroup(r.procedure_type).label,
     signedAt: r.signed_at,
     bidsReceived: r.bids_received,

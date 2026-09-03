@@ -431,4 +431,54 @@ describe('listContracts — privacy masking on the leaderboard list (PR #183 rev
     expect(page.items[0]!.bidderKind).toBe('consortium');
     expect(page.items[0]!.isConsortium).toBe(true);
   });
+
+  it('replaces bidderSlug with the opaque `m<base64(bidder_id)>` token for a sole trader (lyubomir-bozhinov review 2026-09-02, thread on rows.ts:86)', async () => {
+    // The `bidderSlug` is the second half of the masking: `companySlug('eik:<digits>')` returns the
+    // ЕИК digits verbatim, so a masked eik-keyed row's slug would still carry the natural-person's
+    // ЕИК into the `/contracts.data` machine-readable twin (RRv7 single-fetch turbo-stream) and the
+    // HTML hydration payload of the public home single-offer tables — defeating the label mask.
+    // `maskedCompanySlug(bidder_id)` is a one-way token: opaque, non-round-trippable via
+    // `bidderIdFromSlug`, and stable across rebuilds (depends only on the bidder id). The mapper
+    // wires it in here so /contracts.data + the home single-offer tables share the same invariant as
+    // the leaderboard (`rows.ts:86`) and the home top-10 (`9308672`).
+    const { bidderIdFromSlug } = await import('./identity');
+    const page = await listContracts(dbFor(soleTraderRow), { pageSize: 10 });
+    expect(page.items).toHaveLength(1);
+    const item = page.items[0]!;
+    // Masked flag surfaces the privacy signal for downstream consumers (home.tsx, contracts.tsx
+    // branches on `c.masked` to choose <span> vs <Link>). The flag is the single source-of-truth —
+    // not a string compare on MASKED_NATURAL_PERSON_LABEL.
+    expect(item.masked).toBe(true);
+    // Slug is opaque: not round-trippable, no bare ЕИК.
+    expect(item.bidderSlug.startsWith('m')).toBe(true);
+    expect(bidderIdFromSlug(item.bidderSlug)).toBeNull();
+    expect(item.bidderSlug).not.toContain('121817309');
+    expect(item.bidderSlug).not.toMatch(/^\d{9}(\d{4})?$/);
+  });
+
+  it('keeps bidderSlug as the bare ЕИК for a legal entity (round-trippable, by design)', async () => {
+    // The legal-entity branch is untouched: it returns `companySlug(r.bidder_id)` and the slug
+    // is the bare ЕИК so `bidderIdFromSlug(slug)` round-trips. Consumers rely on this for
+    // navigation — masked rows are the only ones that get the opaque form.
+    const { bidderIdFromSlug } = await import('./identity');
+    const page = await listContracts(dbFor(legalEntityRow), { pageSize: 10 });
+    expect(page.items).toHaveLength(1);
+    const item = page.items[0]!;
+    expect(item.masked).toBe(false);
+    expect(item.bidderSlug).toBe('111111113');
+    expect(bidderIdFromSlug(item.bidderSlug)).toBe('eik:111111113');
+  });
+
+  it('keeps bidderSlug as the bare ЕИК for a consortium (round-trippable, by design)', async () => {
+    // The consortium branch is also untouched — masking it would lose the „… и др." shape and the
+    // consortium ЕИК. The guard `bidder_kind !== 'consortium'` in `toItem` keeps this branch
+    // verbatim, even when the consortium lead member's name looks like a sole trader.
+    const { bidderIdFromSlug } = await import('./identity');
+    const page = await listContracts(dbFor(consortiumRow), { pageSize: 10 });
+    expect(page.items).toHaveLength(1);
+    const item = page.items[0]!;
+    expect(item.masked).toBe(false);
+    expect(item.bidderSlug).toBe('111111113');
+    expect(bidderIdFromSlug(item.bidderSlug)).toBe('eik:111111113');
+  });
 });
