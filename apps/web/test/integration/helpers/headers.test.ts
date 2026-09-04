@@ -32,4 +32,21 @@ describe('assertCacheable — s-maxage must be non-zero (ydimitrof review 2026-0
     const res = new Response('body', { headers: { 'Cache-Control': 'public, s-maxage=3600' } });
     expect(() => assertCacheable(res)).toThrow(/stale-while-revalidate/);
   });
+
+  // PR #177 review (ydimitrof 2026-09-03, thread on headers.ts:200): the regex is anchored to
+  // a directive boundary (`(?:^|[\s,])`) so a hypothetical `x-s-maxage=5` header — or any
+  // non-Cache-Control header that happens to contain the literal `s-maxage=` substring — cannot
+  // false-positive. The new test pins the boundary: a Cache-Control value that mentions the
+  // substring as a non-directive substring fails.
+  it('rejects s-maxage occurring as a non-directive substring (e.g. inside a header NAME)', () => {
+    // A "Cache-Control" header that contains the literal text `s-maxage=5` as part of a
+    // hypothetical `x-foo-s-maxage=5` directive would slip past the old unanchored regex. With
+    // the `(?:^|[\s,])` boundary the substring must start a directive, otherwise the regex misses.
+    // (Real `Cache-Control` headers do not have such neighbour-directives; the assertion is a
+    // belt-and-braces against a future custom directive name that happens to contain the text.)
+    const res = new Response('body', {
+      headers: { 'Cache-Control': 'public, x-foo-s-maxage=5, stale-while-revalidate=60' },
+    });
+    expect(() => assertCacheable(res)).toThrow(/s-maxage/);
+  });
 });
