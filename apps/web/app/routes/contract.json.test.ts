@@ -2,17 +2,25 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { ContractRecord } from '@sigma/api-contract';
 import { MASKED_NATURAL_PERSON_LABEL } from '@sigma/shared';
 
-vi.mock('@sigma/db', () => ({
-  getContract: vi.fn(),
-  getDb: (env: unknown) => (env as { DB: unknown }).DB,
-  contractIdFromSlug: (slug: string) => 'c:' + slug,
-}));
+vi.mock('@sigma/db', async (importOriginal) => {
+  // PR #183 review (ydimitrof 2026-09-03, thread on contract.json.tsx:39): the masker now also
+  // imports `maskedCompanySlug` to replace the bidder slug with an opaque token. The mock must
+  // forward that named export so the production function is exercised rather than `undefined`.
+  const actual = await importOriginal<typeof import('@sigma/db')>();
+  return {
+    ...actual,
+    getContract: vi.fn(),
+    getDb: (env: unknown) => (env as { DB: unknown }).DB,
+    contractIdFromSlug: (slug: string) => 'c:' + slug,
+  };
+});
 
 import { getContract } from '@sigma/db';
 import { loader, maskContractForPrivacy } from './contract.json';
 
 function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
   bidder_legal_form: string | null;
+  bidder_id: string;
 } {
   return {
     id: 'c-1',
@@ -83,6 +91,7 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
       bidder: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ',
     },
     bidder_legal_form: 'ЕТ',
+    bidder_id: 'eik:123456789',
     ...overrides,
   };
 }
@@ -103,8 +112,16 @@ describe('maskContractForPrivacy', () => {
     expect(masked.bidder.name).toBe(MASKED_NATURAL_PERSON_LABEL);
     expect(masked.bidder.displayName).toBe(MASKED_NATURAL_PERSON_LABEL);
     expect(masked.sourceNames.bidder).toBe(MASKED_NATURAL_PERSON_LABEL);
-    expect(masked.bidder.slug).toBe('bidder-1');
+    // PR #183 review (ydimitrof 2026-09-03, thread on contract.json.tsx:39): the masker replaces
+    // `bidder.slug` with the opaque `maskedCompanySlug` token so the response body does not carry
+    // a bare ЕИК. The masked profile is reachable only via direct URL or a noindexed contract
+    // page backlink.
+    expect(masked.bidder.slug).toMatch(/^m[0-9a-f]{16}$/);
+    expect(masked.bidder.slug).not.toBe('bidder-1');
     expect(masked.bidder.totalEur).toBe(1000);
+    // The server-only fields (bidder_id, bidder_legal_form) must NOT leak into the masked output.
+    expect('bidder_id' in masked).toBe(false);
+    expect('bidder_legal_form' in masked).toBe(false);
   });
 
   it('returns the input by reference when the bidder is a legal entity', () => {
@@ -133,6 +150,19 @@ describe('maskContractForPrivacy', () => {
     expect(masked.bidder.eik).toBe('123456789');
     expect(masked.bidder.name).toBe('СОФАРМА ТРЕЙДИНГ АД');
     expect(masked.sourceNames.bidder).toBe('СОФАРМА ТРЕЙДИНГ АД');
+  });
+
+  it('does NOT carry a bare ЕИК in the masked body (PR #183 review, ydimitrof 2026-09-03, thread on contract.json.tsx:39)', () => {
+    // Regression: the previous masker kept `bidder.slug` (a bare ЕИК for `eik:<digits>` bidder
+    // ids) in the masked body. The fix substitutes the opaque `maskedCompanySlug` token and
+    // strips `bidder_id` from the public output, so the response body contains no identifier
+    // — neither the bare ЕИК nor a base64url-encoded form of it nor the raw bidder_id key.
+    const record = makeRecord();
+    const masked = maskContractForPrivacy(record, record.bidder_legal_form);
+    const body = JSON.stringify(masked);
+    expect(body).not.toContain('123456789'); // the bare ЕИК
+    expect(body).not.toContain('eik:123456789'); // the bidder_id key
+    expect(body).not.toContain(record.bidder.slug); // the unmasked slug (which was the source leak)
   });
 
   it('masks when legal_form is null but the name starts with the leading-ЕТ heuristic', () => {

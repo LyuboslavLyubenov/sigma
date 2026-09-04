@@ -466,7 +466,9 @@ export const AMENDMENTS_SQL = `SELECT am.value_before, am.value_after, am.value_
 export async function getContract(
   db: D1Database,
   contractId: string,
-): Promise<(ContractRecord & { bidder_legal_form: string | null }) | null> {
+): Promise<
+  (ContractRecord & { bidder_legal_form: string | null; bidder_id: string }) | null
+> {
   const r = await db
     .prepare(
       `SELECT c.id, c.tender_id, c.contract_subject, c.contract_number, c.document_number, c.lot_id,
@@ -747,6 +749,7 @@ export async function getContract(
       authority: r.source_authority_name ?? r.authority_name,
       bidder: r.bidder_name,
     },
+    bidder_id: r.bidder_id,
     bidder_legal_form: r.bidder_legal_form,
   };
 }

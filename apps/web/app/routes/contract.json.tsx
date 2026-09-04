@@ -1,6 +1,6 @@
 import { MASKED_NATURAL_PERSON_LABEL, isNaturalPersonBidder } from '@sigma/shared';
 import type { ContractRecord } from '@sigma/api-contract';
-import { contractIdFromSlug, getContract, getDb } from '@sigma/db';
+import { contractIdFromSlug, getContract, getDb, maskedCompanySlug } from '@sigma/db';
 import type { Route } from './+types/contract.json';
 import { publicCache } from '../lib/cache';
 import { withDataSource } from '../lib/dataSource';
@@ -22,22 +22,33 @@ import { serializeJsonForScript } from '../lib/json-ld';
  * to the caller; the guard here is that caller (PR #183 review, MAJOR 1).
  */
 export function maskContractForPrivacy(
-  record: ContractRecord & { bidder_legal_form: string | null },
+  record: ContractRecord & { bidder_legal_form: string | null; bidder_id: string },
   bidderLegalForm: string | null,
 ): ContractRecord {
   if (record.bidder.kind === 'consortium') return record;
   if (!isNaturalPersonBidder(record.bidder.name, bidderLegalForm)) return record;
-  // Drop the server-only `bidder_legal_form` field explicitly so it never leaks into the JSON
-  // response body. The masker's input type widens to `ContractRecord & { bidder_legal_form }`,
-  // but the public ContractRecord API contract does not include the field — without this destructure
-  // the `...record` spread would carry the natural-person classifier straight through to the client
-  // alongside the masked name (PR #183 review #2).
-  const { bidder_legal_form: _omit, ...publicRecord } = record;
+  // Drop the server-only `bidder_legal_form` AND `bidder_id` fields explicitly so neither leaks
+  // into the JSON response body. The masker's input type widens to
+  // `ContractRecord & { bidder_legal_form; bidder_id }` (the extra fields the loader attaches
+  // before stripping), but the public ContractRecord API contract does not include either — without
+  // the destructure the `...record` spread would carry the natural-person classifier + the
+  // bidder_id round-trip key straight through to the client alongside the masked name (PR #183
+  // review #2, PR #183 review ydimitrof 2026-09-03 thread on contract.json.tsx:39).
+  const { bidder_legal_form: _omit, bidder_id: _omit2, ...publicRecord } = record;
   return {
     ...publicRecord,
     bidder: {
       ...record.bidder,
       eik: null,
+      // PR #183 review (ydimitrof 2026-09-03, thread on contract.json.tsx:39): the spread
+      // `...record.bidder` previously kept the unmasked `slug` (a bare ЕИК for `eik:<digits>`
+      // bidder ids), defeating the body-level masker — the same shape of leak the
+      // `toCompanyListItem` / `toItem` mappers had before the `maskedCompanySlug` fix. The JSON
+      // surface replaces it with the opaque one-way FNV-1a + salt token (identity.ts:75) so the
+      // identifier-classifier field can never be recovered by grepping the response body. The
+      // masked profile is reachable only via direct URL or a noindexed contract-page backlink;
+      // not via this resource route.
+      slug: maskedCompanySlug(record.bidder_id),
       name: MASKED_NATURAL_PERSON_LABEL,
       displayName: MASKED_NATURAL_PERSON_LABEL,
     },
@@ -57,9 +68,19 @@ export function maskContractForPrivacy(
  * optional server-only field, since both branches carry it.
  */
 function stripServerOnlyFields(
-  record: ContractRecord & { bidder_legal_form?: string | null },
+  record: ContractRecord & { bidder_legal_form?: string | null; bidder_id?: string },
 ): ContractRecord {
-  const { bidder_legal_form: _omit, ...publicRecord } = record;
+  // PR #183 review (ydimitrof 2026-09-03, thread on contract.json.tsx:39): `bidder_id` is the
+  // server-only key the JSON masker needs to compute the opaque `maskedCompanySlug`. Once the
+  // masker has run, the bidder object on the public response already carries the opaque slug —
+  // the bidder_id itself must NOT be exposed (it round-trips straight back to the bare ЕИК via
+  // `bidderIdFromSlug`). Strip it here alongside `bidder_legal_form` so the public ContractRecord
+  // shape never carries either of them.
+  const {
+    bidder_legal_form: _omit1,
+    bidder_id: _omit2,
+    ...publicRecord
+  } = record;
   return publicRecord;
 }
 
