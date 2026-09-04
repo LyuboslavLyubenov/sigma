@@ -73,11 +73,11 @@ afterEach(() => {
   container.remove();
 });
 
-async function mount(Component: ComponentType<{ loaderData: unknown }>, loaderData: unknown) {
+async function mount(Component: ComponentType<any>, loaderData: unknown) {
   const Stub = createRoutesStub([
     {
       path: '/companies',
-      Component: () => <Component loaderData={loaderData as never} />,
+      Component: () => <Component loaderData={loaderData} />,
       loader: () => loaderData,
     },
   ]);
