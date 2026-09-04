@@ -17,6 +17,7 @@ import {
   bidderIdFromSlug,
   companySlug,
   contractSlug,
+  maskedCompanySlug,
 } from './identity';
 import { filterSignature, keyset, pageCursors } from './keyset';
 import { lookup } from './lookup';
@@ -231,11 +232,21 @@ function toItem(r: ContractRow): ContractListItem {
     isConsortium: r.bidder_kind === 'consortium',
     authoritySlug: authoritySlug(r.authority_id),
     authorityName,
-    bidderSlug: companySlug(r.bidder_id),
+    // PR #183 review (ydimitrof 2026-09-03, thread on packages/db/src/queries/contracts.ts:234):
+    // mask `bidderSlug` for natural-person rows the same way `toCompanyListItem` masks `slug`
+    // (rows.ts:95). Previously the raw bidder_id was round-tripped through `companySlug`, which
+    // for a `eik:<digits>` bidder id returns the bare digits — leaking the natural-person's ЕИК
+    // into the machine-readable twin (`/contracts.data` turbo-stream payload) and HTML hydration
+    // payload. `maskedCompanySlug` is a one-way FNV-1a token (identity.ts:75 — see
+    // identity.test.ts > masked company slug), non-round-trippable through `bidderIdFromSlug`,
+    // and consistent with the leaderboard's mask. The masked profile is reachable only via the
+    // noindexed contract page, never from the public list.
+    bidderSlug: isNaturalPerson ? maskedCompanySlug(r.bidder_id) : companySlug(r.bidder_id),
     bidderName: maskedBidderName,
     bidderDisplayName: isNaturalPerson
       ? MASKED_NATURAL_PERSON_LABEL
       : entityName(maskedBidderName, r.bidder_kind),
+    masked: isNaturalPerson,
     bidderKind: r.bidder_kind,
     procedureLabel: procedureGroup(r.procedure_type).label,
     signedAt: r.signed_at,
