@@ -24,6 +24,7 @@ import { coverageRange, getCoverageMeta } from '../lib/coverage';
 import { networkColumns, networkRows, trendYearColumns } from '../lib/entity-tables';
 import { withDbRetry } from '../lib/retry';
 import { seoMeta } from '../lib/meta';
+import { PRIVACY_MASK_APPLIED, PRIVACY_MASK_MARKER } from '../lib/security';
 
 export function meta({ data, params, matches }: Route.MetaArgs) {
   const name = data?.company.displayName ?? 'Компания';
@@ -55,9 +56,12 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
   // Forward the internal privacy-mask marker set by the loader on the `.data` Response. React
   // Router's `getDocumentHeadersImpl` does not auto-propagate loader headers (only `Set-Cookie`),
   // so the route must forward explicitly — without this the worker `hardenResponse` cannot
-  // translate the marker into `X-Robots-Tag: noindex` on the HTML response.
-  if (loaderHeaders.get('X-Privacy-Mask') === 'applied') {
-    return { 'Cache-Control': publicCache(3600), 'X-Privacy-Mask': 'applied' };
+  // translate the marker into `X-Robots-Tag: noindex` on the HTML response. The header name + value
+  // come from the shared `PRIVACY_MASK_MARKER` / `PRIVACY_MASK_APPLIED` constants in `security.ts`
+  // (ydimitrof review 2026-09-03, thread on apps/web/app/routes/company.tsx:59) so a future rename
+  // of the marker cannot silently desync the route's check from the worker's translation.
+  if (loaderHeaders.get(PRIVACY_MASK_MARKER) === PRIVACY_MASK_APPLIED) {
+    return { 'Cache-Control': publicCache(3600), [PRIVACY_MASK_MARKER]: PRIVACY_MASK_APPLIED };
   }
   return { 'Cache-Control': publicCache(3600) };
 }
@@ -124,13 +128,13 @@ export async function loader({ params, context }: Route.LoaderArgs) {
       company.hasEik = false;
       return Response.json(
         { company, coverage, trend, network },
-        { headers: { 'X-Privacy-Mask': 'applied' } },
+        { headers: { [PRIVACY_MASK_MARKER]: PRIVACY_MASK_APPLIED } },
       );
     }
     if (company.kind === 'consortium' && company.membershipNote) {
       return Response.json(
         { company, coverage, trend, network },
-        { headers: { 'X-Privacy-Mask': 'applied' } },
+        { headers: { [PRIVACY_MASK_MARKER]: PRIVACY_MASK_APPLIED } },
       );
     }
     return { company, coverage, trend, network };
