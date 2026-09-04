@@ -145,7 +145,21 @@ function compareSemverDesc(a: string, b: string): number {
   return bPatch - aPatch;
 }
 
-const otelEsmRoot = resolveOtelEsmRoot();
+// PR #177 review (ydimitrof 2026-09-03, thread on vitest.integration.config.ts:16): the
+// `resolveOtelEsmRoot()` call is wrapped in a lazy getter so the FS side-effect (`require.resolve`
+// / fallback `readdirSync`+`existsSync`) only fires when a test in the integration project
+// actually consumes the `alias` entries below. `vitest.workspace.ts` imports BOTH projects, so
+// the previous top-level call made the unit project's collection phase pay an unrelated FS read
+// — and worse, a misconfigured pnpm store that throws inside the fallback would crash the unit
+// lane even though the unit project has nothing to do with the otel alias. Lazy resolution keeps
+// the unit project fully independent of the otel pipeline.
+let _otelEsmRoot: string | null = null;
+function getOtelEsmRoot(): string {
+  if (_otelEsmRoot === null) {
+    _otelEsmRoot = resolveOtelEsmRoot();
+  }
+  return _otelEsmRoot;
+}
 
 export default defineConfig({
   plugins: [tailwindcss(), reactRouter()],
@@ -154,13 +168,15 @@ export default defineConfig({
       // Workaround for @opentelemetry/api@1.9.1 — its ESM build uses extension-less
       // relative imports (`./baggage/utils`) which Node 24's strict ESM loader rejects.
       // Vite resolves the alias through its own resolver; vite-node uses it too.
+      // `getOtelEsmRoot()` is lazy so the FS read does not fire when this config is loaded
+      // for a project that does not consume these aliases (e.g. the unit lane via the workspace).
       {
         find: /^@opentelemetry\/api\/build\/esm\/baggage\/utils$/,
-        replacement: path.join(otelEsmRoot, 'baggage/utils.js'),
+        replacement: path.join(getOtelEsmRoot(), 'baggage/utils.js'),
       },
       {
         find: /^@opentelemetry\/api\/build\/esm\/trace\/internal\/utils$/,
-        replacement: path.join(otelEsmRoot, 'trace/internal/utils.js'),
+        replacement: path.join(getOtelEsmRoot(), 'trace/internal/utils.js'),
       },
     ],
   },
