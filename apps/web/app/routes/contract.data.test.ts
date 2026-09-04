@@ -4,16 +4,24 @@ import { applyPrivacyMaskHeaders } from '../lib/security';
 import { getContract } from '@sigma/db';
 import { headers, loader } from './contract';
 
-vi.mock('@sigma/db', () => ({
-  getContract: vi.fn(),
-  getDb: (env: unknown) => (env as { DB: unknown }).DB,
-  contractIdFromSlug: (slug: string) => 'c:' + slug,
-}));
+vi.mock('@sigma/db', async (importOriginal) => {
+  // PR #183 review: the contract page loader now also imports `maskedCompanySlug` to substitute
+  // `bidder.slug` for masked rows (so the HTML page's `<Link>` doesn't advertise a bare ЕИК).
+  // The mock must forward the named export so the production function is exercised.
+  const actual = await importOriginal<typeof import('@sigma/db')>();
+  return {
+    ...actual,
+    getContract: vi.fn(),
+    getDb: (env: unknown) => (env as { DB: unknown }).DB,
+    contractIdFromSlug: (slug: string) => 'c:' + slug,
+  };
+});
 
 // Minimal ContractRecord builder. The loader only reads `bidder.{name,displayName,kind,eik}` and
 // `bidder_legal_form`, so the rest is inert fixture mass (kept small to stay readable).
 function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
   bidder_legal_form: string | null;
+  bidder_id: string;
 } {
   return {
     id: 'c-1',
@@ -81,6 +89,7 @@ function makeRecord(overrides: Partial<ContractRecord> = {}): ContractRecord & {
     amendments: [],
     sourceNames: { authority: 'Some Authority', bidder: 'ЕТ ДРИФТ - НИКОЛАЙ КИРОВ' },
     bidder_legal_form: 'ЕТ',
+    bidder_id: 'eik:123456789',
     ...overrides,
   };
 }
@@ -116,9 +125,17 @@ describe('contract.data loader — natural-person bidder branch', () => {
     expect(response.headers.get('X-Privacy-Mask')).toBe('applied');
     // The loader must NOT emit X-Robots-Tag directly — that is the worker's job (ADR-0040).
     expect(response.headers.get('X-Robots-Tag')).toBeNull();
-    const body = (await response.json()) as { contract: { bidder: { eik: string | null } } };
+    const body = (await response.json()) as {
+      contract: { bidder: { eik: string | null; slug: string } };
+    };
     // ЕИК is the sensitive natural-person identifier → masked on the shared object.
     expect(body.contract.bidder.eik).toBeNull();
+    // PR #183 review: bidder.slug is also masked (opaque token) so the HTML page's
+    // `<Link to="/companies/${slug}">` does not advertise a bare ЕИК. Same shape as the
+    // contract.json.tsx masker (test on contract.json.test.ts:113) and the list mappers
+    // (rows.ts:95, contracts.ts:244).
+    expect(body.contract.bidder.slug).toMatch(/^m[0-9a-f]{16}$/);
+    expect(body.contract.bidder.slug).not.toBe('bidder-1');
   });
 
   it('keeps the consortium ЕИК and sets no marker (kind=consortium guard, parity with JSON masker)', async () => {

@@ -10,7 +10,7 @@ import {
   signedMoney,
   signedPct,
 } from '@sigma/shared';
-import { contractIdFromSlug, contractSlug, getContract, getDb } from '@sigma/db';
+import { contractIdFromSlug, contractSlug, getContract, getDb, maskedCompanySlug } from '@sigma/db';
 import type { CohortBand, ContractDetail } from '@sigma/api-contract';
 import type { Route } from './+types/contract';
 import { Breadcrumbs } from '../components/Breadcrumbs';
@@ -133,17 +133,34 @@ export async function loader({ params, context }: Route.LoaderArgs) {
     contract.bidder.kind !== 'consortium' &&
     isNaturalPersonBidder(contract.bidder.name, contract.bidder_legal_form);
   if (isNatural) {
-    contract.bidder.eik = null;
-    // Strip the server-only `bidder_legal_form` field before serialising the contract into the
-    // `.data` RRv7 single-fetch payload — the JSON resource route (`contract.json.tsx`) already
-    // does this via `stripServerOnlyFields` for parity (PR #183 review #2, "не бива да достига
+    // Work on a SHALLOW copy rather than mutating the loader object in place. ydimitrof review
+    // 2026-09-03 (PR #183, thread on apps/web/app/routes/contract.tsx:136) flagged the in-place
+    // `contract.bidder.eik = null` as a future risk: if `getContract` ever returns a shared or
+    // cached object, the mutation would leak into the next reader. The JSON path already works on
+    // a copy via `maskContractForPrivacy` — this aligns the HTML/`.data` path with the same
+    // contract. We also strip the server-only `bidder_legal_form` field before serialising the
+    // contract into the `.data` RRv7 single-fetch payload — the JSON resource route does the
+    // same via `stripServerOnlyFields` for parity (PR #183 review #2, "не бива да достига
     // клиента"); the contract page loader must do the same for its `.data` twin or the
     // natural-person classifier leaks verbatim next to the masked name in the single-fetch
-    // payload (ydimitrof review 2026-08-31, thread on apps/web/app/routes/contract.tsx:139).
-    // Same goes for the legal-entity / consortium passthrough branch below, which returns the
-    // `contract` object directly and otherwise carries `bidder_legal_form` for a legal entity too
-    // (a useless identifier-classifier next to a public name, so the strip is just hygiene).
-    const { bidder_legal_form: _omit, ...publicContract } = contract;
+    // payload. Same goes for the legal-entity / consortium passthrough branch below, which
+    // returns the `contract` object directly and otherwise carries `bidder_legal_form` for a
+    // legal entity too (a useless identifier-classifier next to a public name, so the strip is
+    // just hygiene).
+    const { bidder_legal_form: _omit, bidder, ...rest } = contract;
+    const publicContract = {
+      ...rest,
+      // PR #183 review: also mask `bidder.slug` for masked rows so the HTML page's `<Link to=
+      // "/companies/${c.bidder.slug}">` does not advertise the bare ЕИК. The JSON masker does
+      // the same on its output (contract.json.tsx:39). The HTML page on a masked contract now
+      // renders `<Link to="/companies/m<opaque>">Частно лице</Link>` — same shape as the list
+      // pages (companies.tsx:174, contracts.tsx:285) and the home top-10 (home.tsx:63).
+      bidder: {
+        ...bidder,
+        eik: null,
+        slug: maskedCompanySlug(contract.bidder_id),
+      },
+    };
     const responseHeaders = new Headers({ 'Cache-Control': publicCache(3600) });
     markPrivacyMaskApplied(responseHeaders);
     return Response.json({ contract: publicContract }, { headers: responseHeaders });
