@@ -145,14 +145,15 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
         '[sigma/test/csv] in DEV mode /contracts.csv must return the documented devalue 500 (a 200 here means the dev-mode devalue path changed and the branch below needs updating); any non-500 status is a route regression.',
       ).toBe(500);
     } else {
-      // Gate on the #94 vitest-pool-workers migration landing. Today this lane is always DEV,
-      // so the else-branch is unreachable; the test below documents the 200 contract and turns
-      // green the moment the lane migrates (ydimitrof review 2026-08-31, thread on
-      // contracts-csv.test.ts:146 — the previous `expect(...).toBe(200)` here locked the test
-      // green against the known-broken state, so a future GOOD change required manual editing).
-      it.todo(
-        'in a prod/pre-built lane /contracts.csv must return 200 (gated on #94 vitest-pool-workers migration)',
-      );
+      // The 200 production branch is asserted by the separate `it.skipIf(!isDev)` test below
+      // (PR #177 review 2026-09-03, thread on contracts-csv.test.ts:153): declaring `it.todo(...)`
+      // inside a running `it(...)` body is not allowed by vitest — test collection happens
+      // before the runtime body executes, so an `it.todo` defined here is silently dropped
+      // (and would also throw if vitest ever tightened its collection-phase rules). The
+      // sibling test is `it.skipIf(isDev)` so it is REGISTERED at collection time and only
+      // executed on a prod/pre-built lane. Migration: when the lane moves off vite-node +
+      // react-router dev, vitest's `import.meta.env.DEV` flips to `false`, the skip lifts,
+      // and the test actually runs and asserts the 200 contract end-to-end.
     }
 
     // Inspect the route-specific headers + body shape.
@@ -248,4 +249,53 @@ describe('GET /contracts.csv — header contract + defensive body shape (issue #
       `[sigma/test/csv] first call from a fresh IP must reach the route and return the mode-determined outcome (${expectedStatus} in ${import.meta.env.DEV ? 'DEV' : 'PROD'}) — got ${res.status}.`,
     ).toBe(expectedStatus);
   });
+
+  // PR #177 review (ydimitrof 2026-09-03, thread on contracts-csv.test.ts:153): the 200 production
+  // branch is asserted by a SIBLING top-level `it(...)` so it is REGISTERED at collection time,
+  // not declared from inside another test's body (where vitest's collection-phase rules would
+  // either silently drop it or throw). `it.skipIf(isDev)` keeps the test skipped in this lane
+  // (which always runs through vite-node + react-router dev → documented devalue 500), and the
+  // skip lifts the moment the lane migrates to a prod/pre-built mode (issue #94 vitest-pool-workers
+  // migration). At that point the test actually runs and asserts the 200 contract end-to-end, with
+  // no source edit required. Until then the 200 path is covered by the unit-test lane
+  // (`apps/web/app/lib/csv-export.test.ts` + `packages/db/src/queries/csv.test.ts`).
+  it.skipIf(import.meta.env.DEV)(
+    'in a prod/pre-built lane /contracts.csv must return 200 with the documented CSV header row (gated on #94 vitest-pool-workers migration)',
+    async () => {
+      const res = await appFetch(csvRequest('203.0.113.62'));
+
+      // Same edge-cache disposition expectation as the DEV-mode test: the route does NOT opt
+      // into edge caching (no `s-maxage`), so the worker sets `X-Edge-Cache: BYPASS` on a first
+      // request. A future change that adds a per-route s-maxage would land as MISS — the
+      // helper whitelists both.
+      assertEdgeCacheFirstRequest(res);
+
+      // 200 production contract: content-type, content-disposition, cache-control, and the
+      // first line of the body must match the documented CSV header row.
+      expect(
+        res.status,
+        '[sigma/test/csv] prod-shape lane /contracts.csv must return 200 (a non-200 is a route regression; this test is only enabled in a prod/pre-built lane via it.skipIf(import.meta.env.DEV))',
+      ).toBe(200);
+
+      assertCsvContentType(res);
+
+      const cd = res.headers.get('Content-Disposition');
+      expect(
+        cd,
+        '[sigma/test/csv] 200 must carry `Content-Disposition: attachment; filename="sigma-contracts.csv"` — got null',
+      ).not.toBeNull();
+      expect(cd!.toLowerCase()).toContain('attachment');
+      expect(cd!.toLowerCase()).toContain('sigma-contracts.csv');
+
+      expect(res.headers.get('Cache-Control')).toContain('max-age=');
+
+      const body = await res.text();
+      const bodyNoBom = body.replace(/^\uFEFF/, '');
+      const firstLine = bodyNoBom.split('\n', 1)[0] ?? '';
+      expect(
+        firstLine,
+        `[sigma/test/csv] 200 body first line must equal the documented CSV header row — got first line ${JSON.stringify(firstLine)}; full body first 300 chars: ${JSON.stringify(bodyNoBom.slice(0, 300))}`,
+      ).toBe(EXPECTED_CSV_HEADER);
+    },
+  );
 });
