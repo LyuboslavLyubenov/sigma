@@ -622,7 +622,12 @@ export interface CompetitionPair {
   authoritySlug: string;
   authorityName: string;
   bidderSlug: string;
-  /** Cleaned raw name, kept for parity with FlowPair/ContractRow and a future CSV export; the UI renders bidderDisplayName. */
+  /** Already-masked bidder name — the competition mapper substitutes `MASKED_NATURAL_PERSON_LABEL`
+   * for sole-trader / natural-person rows (the raw name is a PII leak for `ЕТ` rows; see the
+   * competition mapper at packages/db/src/queries/competition.ts and PR #345 review
+   * lyubomir-bozhinov 2026-09-04). Consumers and any future CSV export MUST render
+   * `bidderName` directly — do NOT swap in the underlying raw name from elsewhere, as that
+   * would re-leak the natural-person's identifier. For UI rendering prefer `bidderDisplayName`. */
   bidderName: string;
   bidderDisplayName: string;
   bidderKind: EntityKind;
