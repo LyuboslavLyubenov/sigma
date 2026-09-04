@@ -20,6 +20,7 @@ import {
 import { publicCache } from '../lib/cache';
 import { withDbRetry } from '../lib/retry';
 import { seoMeta } from '../lib/meta';
+import { PRIVACY_MASK_APPLIED, PRIVACY_MASK_MARKER } from '../lib/security';
 
 const VALUE_BUCKETS = [
   { value: 'lt100k', label: 'Под 100 хил. €' },
@@ -46,12 +47,15 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
   // translate the marker into `X-Robots-Tag: noindex` on the HTML response. (PR #183 review #1:
   // the contract leaderboard exposes masked sole-trader rows via the shared `toItem` mapper; the
   // marker ensures the .data twin — RRv7 single-fetch — also carries noindex when ANY row on the
-  // page is masked.)
+  // page is masked.) The header name + value come from the shared `PRIVACY_MASK_MARKER` /
+  // `PRIVACY_MASK_APPLIED` constants in `security.ts` (ydimitrof review 2026-09-03, thread on
+  // apps/web/app/routes/companies.tsx:88, applied here for parity) so a future rename of the
+  // marker cannot silently desync this route from the worker translation.
   const headers: Record<string, string> = {
     'Cache-Control': loaderHeaders.get('Cache-Control') ?? publicCache(1800),
   };
-  if (loaderHeaders.get('X-Privacy-Mask') === 'applied') {
-    headers['X-Privacy-Mask'] = 'applied';
+  if (loaderHeaders.get(PRIVACY_MASK_MARKER) === PRIVACY_MASK_APPLIED) {
+    headers[PRIVACY_MASK_MARKER] = PRIVACY_MASK_APPLIED;
   }
   return headers;
 }
@@ -84,7 +88,20 @@ export async function loader({ request, context }: Route.LoaderArgs) {
     // `MASKED_NATURAL_PERSON_LABEL` — the flag is the single source-of-truth for the masking
     // signal, kept in lock-step with the label and the opaque slug inside `toItem`.
     if (result.items.some((c) => c.masked)) {
-      return Response.json({ result, facets }, { headers: { 'X-Privacy-Mask': 'applied' } });
+      return Response.json(
+        { result, facets },
+        {
+          // Header name + value from the shared constants in `security.ts` (ydimitrof review
+          // 2026-09-03, PR #344, thread on apps/web/app/routes/companies.tsx:88, applied here
+          // for parity). Cache-Control added for the same reason: this Response is served on the
+          // `.data` URL directly by RRv7, bypassing the route's `headers()` above, so the edge
+          // cache would otherwise treat it as not cacheable.
+          headers: {
+            [PRIVACY_MASK_MARKER]: PRIVACY_MASK_APPLIED,
+            'Cache-Control': publicCache(1800),
+          },
+        },
+      );
     }
     return { result, facets };
   });

@@ -27,6 +27,7 @@ import {
 import { publicCache } from '../lib/cache';
 import { getCoverageMeta, yearOptions } from '../lib/coverage';
 import { seoMeta } from '../lib/meta';
+import { PRIVACY_MASK_APPLIED, PRIVACY_MASK_MARKER } from '../lib/security';
 
 const COUNT_BUCKETS = [
   { value: '1', label: '1 договор' },
@@ -84,8 +85,29 @@ export async function loader({ request, context }: Route.LoaderArgs) {
   // apps/web/app/routes/companies.tsx:84) instead of string-comparing `MASKED_NATURAL_PERSON_LABEL`
   // — the flag is the single source-of-truth for the masking signal, kept in lock-step with the
   // label and the null ЕИК inside `toCompanyListItem`.
+  //
+  // The header name + value come from the shared `PRIVACY_MASK_MARKER` / `PRIVACY_MASK_APPLIED`
+  // constants in `security.ts` (ydimitrof review 2026-09-03, thread on
+  // apps/web/app/routes/companies.tsx:88) so a future rename of the marker cannot silently
+  // desync this loader from the worker translation.
+  //
+  // Cache parity (ydimitrof review 2026-09-03, same thread): the unmasked branch returns the
+  // loader data as a plain object so React Router applies the route's `headers()` and emits
+  // `Cache-Control: public, s-maxage=…`. The masked branch returns a `Response.json` directly,
+  // which RRv7 serves on the `.data` URL without going through `headers()` — so the cached
+  // entry would lose `Cache-Control` and the edge cache would treat it as not cacheable.
+  // Setting `Cache-Control` on the Response itself matches the unmasked path and keeps the
+  // edge warm for both branches.
   if (page.items.some((c) => c.masked)) {
-    return Response.json({ page, facets, coverage }, { headers: { 'X-Privacy-Mask': 'applied' } });
+    return Response.json(
+      { page, facets, coverage },
+      {
+        headers: {
+          [PRIVACY_MASK_MARKER]: PRIVACY_MASK_APPLIED,
+          'Cache-Control': publicCache(1800),
+        },
+      },
+    );
   }
   return { page, facets, coverage };
 }

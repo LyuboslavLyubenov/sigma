@@ -22,7 +22,7 @@ import { annexNeedsExpand, annexParagraphs, annexPreview } from '../lib/annexTex
 import { publicCache } from '../lib/cache';
 import { eopSourceFiles } from '../lib/eopSource';
 import { seoMeta } from '../lib/meta';
-import { markPrivacyMaskApplied } from '../lib/security';
+import { markPrivacyMaskApplied, PRIVACY_MASK_APPLIED, PRIVACY_MASK_MARKER } from '../lib/security';
 
 /**
  * Compose the muted sub-line under „Брой оферти". The AOP feed gives us the gross submitted count
@@ -107,9 +107,11 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
   // so the route must forward explicitly — without this the worker `hardenResponse` cannot
   // translate the marker into `X-Robots-Tag: noindex` on the HTML response (same shape as
   // `company.tsx:47`). The `.data` RRv7 single-fetch twin shares the same loader, so the marker
-  // set on the loader Response covers both surfaces.
-  if (loaderHeaders.get('X-Privacy-Mask') === 'applied') {
-    return { 'Cache-Control': publicCache(3600), 'X-Privacy-Mask': 'applied' };
+  // set on the loader Response covers both surfaces. The header name + value come from the shared
+  // `PRIVACY_MASK_MARKER` / `PRIVACY_MASK_APPLIED` constants in `security.ts` (ydimitrof review
+  // 2026-09-03, thread on apps/web/app/routes/companies.tsx:88, applied here for parity).
+  if (loaderHeaders.get(PRIVACY_MASK_MARKER) === PRIVACY_MASK_APPLIED) {
+    return { 'Cache-Control': publicCache(3600), [PRIVACY_MASK_MARKER]: PRIVACY_MASK_APPLIED };
   }
   return { 'Cache-Control': publicCache(3600) };
 }
