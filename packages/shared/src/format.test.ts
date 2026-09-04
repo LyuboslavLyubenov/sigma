@@ -227,6 +227,51 @@ describe('isNaturalPersonBidder', () => {
   it('returns false for a plain company with a non-matching legal form and no ЕТ prefix', () => {
     expect(isNaturalPersonBidder('СОФАРМА ТРЕЙДИНГ', 'АД')).toBe(false);
   });
+
+  // PR #344 review (ydimitrof 2026-09-03, thread on format.ts:227) — the prior
+  // `normalized.includes('INDIVIDUAL')` substring was too broad: any legal form containing
+  // "INDIVIDUAL" would over-mask and hide legitimate public-procurement data for legal entities
+  // the parser does not yet recognise. The matcher is now anchored to specific known sole-trader
+  // forms; corporate forms like "INDIVIDUAL HOLDINGS LLC" must NOT trigger the masker.
+  it('does NOT over-mask legal entities whose legal_form merely contains the word "INDIVIDUAL"', () => {
+    expect(isNaturalPersonBidder('Some Holdings LLC', 'INDIVIDUAL HOLDINGS LLC')).toBe(false);
+    expect(isNaturalPersonBidder('Some Capital Ltd', 'INDIVIDUAL CAPITAL LTD')).toBe(false);
+    expect(isNaturalPersonBidder('Some Properties SA', 'INDIVIDUAL PROPERTIES S.A.')).toBe(false);
+  });
+
+  it('still flags the specific EU/UK sole-trader multi-word forms', () => {
+    expect(isNaturalPersonBidder('Some Trader', 'INDIVIDUAL TRADER')).toBe(true);
+    expect(isNaturalPersonBidder('Some Trader', 'INDIVIDUAL ENTERPRISE')).toBe(true);
+    expect(isNaturalPersonBidder('Some Trader', 'INDIVIDUAL ENTREPRENEUR')).toBe(true);
+    expect(isNaturalPersonBidder('Some Trader', 'INDIVIDUAL MERCHANT')).toBe(true);
+  });
+});
+
+describe('isNaturalPersonProfileName — null / undefined / empty safety (PR #344 review, ydimitrof 2026-09-03, thread on format.ts:232)', () => {
+  it('returns false for null instead of throwing on .trim()', () => {
+    expect(isNaturalPersonProfileName(null)).toBe(false);
+  });
+
+  it('returns false for undefined instead of throwing on .trim()', () => {
+    expect(isNaturalPersonProfileName(undefined)).toBe(false);
+  });
+
+  it('returns false for an empty string', () => {
+    expect(isNaturalPersonProfileName('')).toBe(false);
+  });
+
+  it('returns false for a whitespace-only string', () => {
+    expect(isNaturalPersonProfileName('   ')).toBe(false);
+  });
+
+  it('the wider isNaturalPersonBidder predicate also tolerates a null name and does not throw', () => {
+    // The CSV/JSON streamer can pass a row whose `bidder_name` is null when the registry left the
+    // record blank. The legal_form-only path stays correct (returns false for non-matching
+    // forms), and the name-heuristic path no longer throws.
+    expect(isNaturalPersonBidder(null, 'АД')).toBe(false);
+    expect(isNaturalPersonBidder(undefined, 'ДЗЗД')).toBe(false);
+    expect(isNaturalPersonBidder(null, null)).toBe(false);
+  });
 });
 
 describe('MASKED_NATURAL_PERSON_LABEL', () => {
