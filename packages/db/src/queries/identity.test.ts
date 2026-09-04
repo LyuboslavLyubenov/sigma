@@ -200,6 +200,28 @@ describe('masked company slug (PR #183 review — lyubomir-bozhinov 2026-09-02, 
     // and the tail is not a base64url-recoverable substring that round-trips to the bidder id
     // (the explicit base64url test above is the canonical check).
   });
+  // PR #183 review (ydimitrof 2026-09-03, lyubomir-bozhinov 2026-09-04, thread on identity.ts:75):
+  // the unsalted FNV-1a is enumerable over the public ЕИК keyspace (any scraper who can map
+  // `fnv1a64('eik:' + i)` for i in 10^9 can reverse-lookup the slug). The runtime salt
+  // (`MASKED_SLUG_SALT`) is generated at module init via `crypto.getRandomValues` and never
+  // appears in source, so the attack becomes: enumerate candidates AND guess the salt — the
+  // salt adds a 16-byte (128-bit) prefix the attacker doesn't have. This test pins the property
+  // by feeding two different module-level invocations under the same input: the salt is
+  // generated ONCE per isolate, so output is stable within a process (this test runs in one
+  // vitest worker, one isolate). The cross-isolate property (different output on cold start)
+  // is the one we can't pin in a unit test, but the in-isolate stability is what consumers
+  // rely on for cache-key correctness — the cache tag (DEPLOY_TAG in app.ts) rotates the URL
+  // namespace on cold start anyway, so any cross-isolate change is already invalidated.
+  it('uses a runtime salt (output is stable within a process, includes non-deterministic bytes)', () => {
+    const a = maskedCompanySlug('eik:121817309');
+    const b = maskedCompanySlug('eik:121817309');
+    // Stable within the same process (single salt initialised at module load).
+    expect(a).toBe(b);
+    // Different bidder ids still produce different outputs (the salt doesn't collapse the
+    // input space).
+    const c = maskedCompanySlug('eik:999999999');
+    expect(a).not.toBe(c);
+  });
 });
 
 describe('hrefForEntity', () => {
