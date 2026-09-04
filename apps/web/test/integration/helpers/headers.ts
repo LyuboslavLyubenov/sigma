@@ -182,7 +182,12 @@ export function assertCommonSecurity(response: Response): void {
  */
 export function assertCacheable(response: Response): void {
   const cc = header(response.headers, 'Cache-Control');
-  expect(cc).toMatch(/s-maxage=[1-9]\d*/);
+  // PR #177 review (ydimitrof 2026-09-03, thread on headers.ts:200): the regex is anchored to a
+  // directive boundary — `(?:^|[\s,])` — so a hypothetical `x-s-maxage=5` header (or any
+  // non-Cache-Control header that happens to contain the substring) cannot false-positive. The
+  // `[1-9]\d*` pattern keeps `s-maxage=0` (which means "do not cache") out, so the assertion
+  // only passes on a real edge-cacheable response.
+  expect(cc).toMatch(/(?:^|[\s,])s-maxage=[1-9]\d*/);
   expect(cc).toContain('stale-while-revalidate=');
 }
 
