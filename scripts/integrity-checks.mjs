@@ -426,6 +426,31 @@ export async function runIntegrityChecks(runner) {
 // Reduce raw check results to the gate verdict + a single canonical failure message, so every caller
 // (CLI assertIntegrity, the apps/etl Worker gate) reports the SAME decision and message instead of
 // re-deriving it. `violations` are the hard failures; `warned` are the non-gating WARNs.
+const MAX_DETAIL_CHARS = 400;
+// The whole message is bounded too, not only each detail: with every check broken the list would
+// otherwise grow linearly with the roster (~3 KB today, more as checks are added). Past the budget
+// the remaining checks are counted, not printed — the names that fit are the ones an operator reads.
+const MAX_MESSAGE_CHARS = 1200;
+function clipDetail(detail) {
+  const text = String(detail ?? '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return text.length > MAX_DETAIL_CHARS ? `${text.slice(0, MAX_DETAIL_CHARS - 1)}…` : text;
+}
+function describeViolations(violations) {
+  const parts = violations.map((v) => `${v.name} — ${clipDetail(v.detail)}`);
+  let out = '';
+  for (let i = 0; i < parts.length; i += 1) {
+    const next = out ? `${out}; ${parts[i]}` : parts[i];
+    if (next.length > MAX_MESSAGE_CHARS) {
+      const rest = parts.length - i;
+      return `${out || parts[i].slice(0, MAX_MESSAGE_CHARS - 1) + '…'}; +${rest} more`;
+    }
+    out = next;
+  }
+  return out;
+}
+
 export function summarizeIntegrity(results, label = 'integrity') {
   const violations = results.filter((r) => !r.skipped && !r.ok);
   const warned = results.filter((r) => r.warn);
@@ -436,10 +461,16 @@ export function summarizeIntegrity(results, label = 'integrity') {
     warned,
     ran,
     skipped: results.length - ran,
+    // The message NAMES every broken check with its detail: it is what a Workflow step error and a
+    // CLI exit carry, and on 2026-09-02 the bare count ("1 of 8 checks broke") cost a manual re-run
+    // of the whole roster against the served D1 just to learn WHICH one. Details are clipped so a
+    // pathological check cannot turn the step error into a page.
     message:
       violations.length === 0
         ? null
-        : `integrity gate failed: ${violations.length} of ${results.length} checks broke (${label}).`,
+        : `integrity gate failed: ${violations.length} of ${results.length} checks broke (${label}): ` +
+          describeViolations(violations) +
+          '.',
   };
 }
 
