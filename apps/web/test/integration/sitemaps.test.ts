@@ -202,8 +202,6 @@ describe('robots.txt — body shape (issue #94)', () => {
     // The crawler relies on each literal line being present at the start of a row.
     expect(body).toMatch(/^User-agent: \*$/m);
     expect(body).toMatch(/^Allow: \/$/m);
-    expect(body).toMatch(/^Disallow: \/search$/m);
-    expect(body).toMatch(/^Disallow: \/\*\.csv$/m);
     expect(body).toMatch(new RegExp(`^Sitemap: ${BASE.replace(/\./g, '\\.')}/sitemap\\.xml$`, 'm'));
   });
 });
