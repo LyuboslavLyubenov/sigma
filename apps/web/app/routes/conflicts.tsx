@@ -55,17 +55,19 @@ export function headers({ loaderHeaders }: Route.HeadersArgs) {
 // Group and filter on the server. Only one page of canonical people reaches the browser.
 const PER_PAGE = 100;
 
-// `?authority=<ЕИК>` narrows the list to the officials whose declared-stake winners that body paid — the
-// institution profile links here. A malformed value is ignored rather than failing the page; an ЕИК that
-// names no institution is a 404, like every other slug on the site.
-const AUTHORITY_SLUG = /^\d{9}(\d{4})?$/;
+// `?authority=<слug>` narrows the list to the officials whose declared-stake winners that body paid — the
+// institution profile links here. A slug that names no institution is a 404, like every other slug on the
+// site. It is NOT matched against an ЕИК shape first: the source data leaves a few bodies with an id that
+// is not one (several ЕИК in a single field, a URL, a person's name), their profile pages are live, and
+// their „Свързани лица" button carries exactly that id. Dropping a filter we cannot parse would publish the
+// WHOLE list of links under one institution's name — the filter either applies or the page refuses.
 
 export async function loader({ request, context }: Route.LoaderArgs) {
   const db = getDb(context.cloudflare.env);
   const slug = new URL(request.url).searchParams.get('authority');
   let authority: { slug: string; name: string } | null = null;
   let authorityId: string | undefined;
-  if (slug && AUTHORITY_SLUG.test(slug)) {
+  if (slug) {
     const id = authorityIdFromSlug(slug);
     const name = await withDbRetry(() => getAuthorityName(db, id));
     if (name == null) throw new Response('Not Found', { status: 404 });
@@ -286,6 +288,9 @@ export default function Conflicts({ loaderData }: Route.ComponentProps) {
       options: facets.institutions,
     },
   ];
+  // The registry-only bucket is exactly the people who did NOT name the company in their declaration, so
+  // the standing title („декларирали дял") states the opposite of what the filtered list shows.
+  const registryOnly = filters.stake === 'registry';
   const clearHref = authority ? `/conflicts?authority=${authority.slug}` : '/conflicts';
   const columns = personColumns(leaderboardRankOffset(page, PER_PAGE));
   const nav: PageNav = {
@@ -302,19 +307,31 @@ export default function Conflicts({ loaderData }: Route.ComponentProps) {
         <PageHeader
           kicker="Свързани лица"
           title={
-            <>
-              Длъжностни лица, декларирали <em>дял</em> в компании изпълнители
-            </>
+            registryOnly ? (
+              <>
+                Длъжностни лица, вписани в <em>Търговския регистър</em> като собственици на
+                изпълнител
+              </>
+            ) : (
+              <>
+                Длъжностни лица, декларирали <em>дял</em> в компании изпълнители
+              </>
+            )
           }
-          lede="Длъжностни лица, декларирали дял — свой или на свързано лице — в дружество, спечелило обществена поръчка. Показваме и доказани исторически връзки, с декларираните години и проверими източници."
+          lede={
+            registryOnly
+              ? 'Длъжностни лица, които Търговският регистър вписва като собственик или управител на дружество, спечелило обществена поръчка, без това дружество да е посочено в декларацията им. Самоличността е доказана чрез друго дружество, което лицето само е декларирало.'
+              : 'Длъжностни лица, декларирали дял — свой или на свързано лице — в дружество, спечелило обществена поръчка. Показваме и доказани исторически връзки, с декларираните години и проверими източници.'
+          }
         />
 
         <Callout titleAs="h2" title="Как се извежда връзката — и какво не твърди">
           <p className="m-0">
-            Основата са <strong>собствените декларации</strong> на лицата пред КПКОНПИ (публичен
-            регистър). Дружеството е неговият ЕИК — деклариран или този, до който води декларираното
-            наименование — и се потвърждава от вписаните в Търговския регистър лица. Неясните и
-            противоречивите съпоставяния се задържат за проверка.{' '}
+            Основата са <strong>собствените декларации</strong> на лицата в{' '}
+            <strong>Публичния регистър на Сметната палата</strong> (чл. 75 ЗСП). Дружеството е
+            неговият ЕИК — деклариран или този, до който води декларираното наименование — и се
+            потвърждава от вписаните в Търговския регистър лица. Неясните и противоречивите
+            съпоставяния се задържат за проверка.{' '}
             <strong>Доказаните исторически връзки се запазват</strong> с периодите и източниците им.
             Показваме и дял, деклариран на <strong>свързано лице</strong> — наравно със собствения —
             защото декларацията съществува именно за да е видимо дали публични пари стигат до
