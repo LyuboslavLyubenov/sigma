@@ -29,6 +29,7 @@ const contracts = (eik: string, company: string, year: string | null, eligible: 
     contracts: eligible + 1,
     role: 0,
     declared: eligible,
+    tied: eligible,
     eligible,
     valueEur: 1_000,
   }) satisfies TimelineContracts;
@@ -94,6 +95,9 @@ function profile(over: {
     activity: emptyActivity,
     totals: { companies: 0, contracts: 0, valueEur: null, declaredCount: 0, declaredEur: null },
     tieLayout: null,
+    aliases: [],
+    relatives: [],
+    namedBy: [],
   };
 }
 

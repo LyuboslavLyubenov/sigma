@@ -1,6 +1,8 @@
 import { documentFingerprint } from './source-identity.mjs';
 import { buildPersonRelatives } from './relatives.mjs';
 import { rebuildPersonEntities, declarationSourceId } from './person-entities.mjs';
+import { declarantGuid } from './declarant-guid.mjs';
+import { resolveOffices } from './declaration-office.mjs';
 import { buildPersonRegistryLinks } from './person-registry-links.mjs';
 import { IDENTITY_RULES_VERSION } from './registry-identity.mjs';
 import { recordBuild } from './build-proof.mjs';
@@ -20,7 +22,14 @@ import { DatabaseSync } from 'node:sqlite';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { temporalStatus, localityToken, closelyHeldForm, norm } from './classify.mjs';
+import {
+  temporalStatus,
+  localityToken,
+  closelyHeldForm,
+  norm,
+  authOwn,
+  OWN_RANK,
+} from './classify.mjs';
 import {
   openCache,
   coverage,
@@ -77,7 +86,7 @@ const TR_CACHE_DB = process.env.TR_CACHE_DB || TR_DB;
 // can be published without evidence it never gathered, but it is not the state a subsequent real run
 // should inherit. The one thing it must never touch either way is the monotonicity snapshot — see below.
 const EMIT_CANDIDATES_ONLY = process.argv.includes('--emit-candidates');
-const { companyNameKey, isMatchableKey } =
+const { companyNameKey, isMatchableKey, registryCompanyName } =
   await import('../../packages/shared/src/company-name-key.ts');
 
 const yr = (s) => {
@@ -374,10 +383,84 @@ const personId = (name, institution) =>
 const sourcePersonOf = (rec) =>
   `person:${companyNameKey(rec.person)}|${companyNameKey(
     identityInstitution(
-      declarationInstitution(rec) || `НЕУСТАНОВЕНА ИНСТИТУЦИЯ ${rec.folder}:${rec.xmlFile}`,
+      officeInstitution(rec) || `НЕУСТАНОВЕНА ИНСТИТУЦИЯ ${rec.folder}:${rec.xmlFile}`,
     ),
   )}`;
 const filings = readJsonl(path.join(STAGING, 'filings.jsonl'));
+// The day-job correction (declaration-office.mjs): a filing whose „Месторабота" is a company the corpus
+// knows to be private — a winner without public ownership, or a partida with no public owner — is filed
+// FOR the office the same declarant named within a year. Public ownership is read from the same columns
+// the site reads; a body the corpus does not know is left as the declaration says.
+const privateCompanyKeys = new Set();
+{
+  const has = (t) => !!db.prepare('SELECT 1 FROM sqlite_master WHERE name=?').get(t);
+  const eiks = (sql) =>
+    new Set(
+      db
+        .prepare(sql)
+        .all()
+        .map((r) => String(r.eik)),
+    );
+  const publicEik = new Set([
+    ...(has('state_owned_eik') ? eiks('SELECT eik FROM state_owned_eik') : []),
+    ...(has('public_owned_eik') ? eiks('SELECT eik FROM public_owned_eik') : []),
+  ]);
+  // A ministry or a municipality wins contracts too; a winner is not a company just for being one.
+  const authorityEik = eiks(
+    "SELECT substr(id, 6) AS eik FROM authorities WHERE id GLOB 'auth:[0-9]*'",
+  );
+  const stem = (eik) => (eik.length === 13 ? eik.slice(0, 9) : eik); // a branch is its enterprise
+  const isPublicBody = (eik) =>
+    !eik ||
+    publicEik.has(eik) ||
+    publicEik.has(stem(eik)) ||
+    authorityEik.has(eik) ||
+    authorityEik.has(stem(eik));
+  for (const b of bidders)
+    if (b.valid && !b.ownership_kind && b.eik && !isPublicBody(String(b.eik)))
+      privateCompanyKeys.add(companyNameKey(b.name));
+  // The partidas, only with the ownership lists in hand: without them every partida would read as
+  // private and the correction would pull board members of state enterprises off their seats (seen once
+  // on dev: 291 filings, the energy holding among them). The register's name history counts too — a
+  // declarant names the company as it was called when he signed, and companies get renamed.
+  if (has('registry_deeds') && publicEik.size > 0) {
+    for (const d of db
+      .prepare(
+        "SELECT eik, name, legal_form FROM registry_deeds WHERE outcome='ok' AND name IS NOT NULL",
+      )
+      .all())
+      if (!isPublicBody(String(d.eik)))
+        privateCompanyKeys.add(companyNameKey(registryCompanyName(d.name, d.legal_form)));
+    if (has('registry_company_history'))
+      for (const h of db.prepare('SELECT eik, names_json FROM registry_company_history').all()) {
+        if (isPublicBody(String(h.eik))) continue;
+        let names = [];
+        try {
+          names = JSON.parse(h.names_json) ?? [];
+        } catch {
+          continue;
+        }
+        for (const n of names)
+          if (n?.name)
+            privateCompanyKeys.add(
+              companyNameKey(n.legalForm ? `${n.name} ${n.legalForm}` : n.name),
+            );
+      }
+  }
+  for (const a of db.prepare('SELECT name FROM authorities').all())
+    privateCompanyKeys.delete(companyNameKey(a.name));
+}
+const rawInstitution = declarationInstitution;
+const offices = resolveOffices(filings, {
+  institutionOf: rawInstitution,
+  sourceId: declarationSourceId,
+  guidOf: declarantGuid,
+  isPrivateCompany: (name) => privateCompanyKeys.has(companyNameKey(name)),
+});
+function officeInstitution(rec) {
+  return offices.get(declarationSourceId(rec)) ?? rawInstitution(rec);
+}
+console.log(`Day-job filings re-homed to the declarant's office: ${offices.size}`);
 const identity = rebuildPersonEntities(
   db,
   db,
@@ -519,7 +602,7 @@ for (const h of readJsonl(path.join(STAGING, 'holdings.jsonl'))) {
     h.year ?? null,
     h.template,
     h.category ?? '',
-    declarationInstitution(h),
+    officeInstitution(h),
     h.position ?? '',
     `https://register.cacbg.bg/${h.sourceFolder ?? h.folder}/${h.xmlFile}`,
   );
@@ -553,7 +636,7 @@ for (const h of readJsonl(path.join(STAGING, 'holdings.jsonl'))) {
   // distinguish two same-named officials, so forming a link would risk attributing one person's stake to a
   // homonym (false attribution — libel). Withhold from link formation; the declaration + declared interest
   // are already recorded above for census. Counted so the dropped volume is visible in the Phase-0 report.
-  if (!isMatchableKey(companyNameKey(identityInstitution(declarationInstitution(h))))) {
+  if (!isMatchableKey(companyNameKey(identityInstitution(officeInstitution(h))))) {
     namelessInstitution++;
     continue;
   }
@@ -632,7 +715,7 @@ for (const h of readJsonl(path.join(STAGING, 'holdings.jsonl'))) {
       rec.annualDocuments.set(inventoryKey, docs);
     }
   }
-  const declaredInstitution = declarationInstitution(h);
+  const declaredInstitution = officeInstitution(h);
   if (declaredInstitution) rec.institutions.add(declaredInstitution);
 }
 const inventoryConflicts = [];
@@ -684,7 +767,7 @@ for (const r of readJsonl(path.join(STAGING, 'related.jsonl'))) {
       r.year ?? null,
       'interests',
       '',
-      declarationInstitution(r),
+      officeInstitution(r),
       '',
       `https://register.cacbg.bg/${r.sourceFolder ?? r.folder}/${r.xmlFile}`,
     );
@@ -721,7 +804,7 @@ for (const f of readJsonl(path.join(STAGING, 'filings.jsonl'))) {
     f.year ?? null,
     f.template ?? 'unknown',
     f.category ?? '',
-    declarationInstitution(f),
+    officeInstitution(f),
     f.position ?? '',
     `https://register.cacbg.bg/${f.sourceFolder ?? f.folder}/${f.xmlFile}`,
   );
@@ -762,27 +845,6 @@ const insEvidence = db.prepare(
 );
 const insHistory = db.prepare('INSERT INTO interest_link_history VALUES(?,?,?)');
 const insObservation = db.prepare('INSERT INTO interest_link_observations VALUES(?,?,?,?,?)');
-// classify one authority (whose name may be a ';'-joined blob) against the official's institutions.
-// exact = deterministic name equality; name_contains/locality = DISCLOSED heuristics (candidate, not proof).
-const OWN_RANK = { exact: 3, name_contains: 2, locality: 1, none: 0 };
-function authOwn(authorityName, instNorms, instNormsLong, locTokens) {
-  const parts = String(authorityName)
-    .split(';')
-    .map((s) => institutionMatchKey(s))
-    .filter(Boolean);
-  if (parts.some((p) => instNorms.includes(p))) return 'exact';
-  // heuristic: a LONG institution name (≥12 chars — guards against short-abbreviation false positives)
-  // that is a normalized substring of an authority component or vice versa (e.g. „Народно събрание"
-  // ⊂ „Народно събрание на Република България"). Disclosed, not deterministic.
-  if (
-    instNormsLong.length &&
-    parts.some((p) => instNormsLong.some((i) => p.includes(i) || i.includes(p)))
-  )
-    return 'name_contains';
-  if (locTokens.length && parts.some((p) => locTokens.some((t) => p.includes(t))))
-    return 'locality';
-  return 'none';
-}
 // Distinct officials who declared each company (ЕИК). A private interest has ONE owner-declarant; a
 // public body's board is declared by MANY rotating members — the deterministic ex-officio tell (ADR-0019).
 // ── Trade Register evidence: the candidate set, the fail-closed gate, and the deed reader ─────────
@@ -925,6 +987,10 @@ for (const rec of agg.values()) {
   const instNorms = [...rec.institutions].map(institutionMatchKey).filter(Boolean);
   const instNormsLong = instNorms.filter((i) => i.length >= 12);
   const locTokens = [...rec.institutions].map(localityToken).filter(Boolean);
+  // Every word of every declared institution, for the place read from the authority's side.
+  const instWords = new Set(
+    instNorms.flatMap((i) => i.split(/[^А-ЯЁ]+/u)).filter((w) => w.length >= 4),
+  );
   const years = new Set();
   let cCount = 0,
     cValue = 0,
@@ -996,7 +1062,7 @@ for (const rec of agg.values()) {
   // link-level own_institution = strongest per-authority verdict (exact > name_contains > locality > none)
   let ownInst = 'none';
   for (const [, a] of perAuth) {
-    a.own = authOwn(a.name, instNorms, instNormsLong, locTokens);
+    a.own = authOwn(a.name, instNorms, instNormsLong, locTokens, instWords);
     if (OWN_RANK[a.own] > OWN_RANK[ownInst]) ownInst = a.own;
   }
   // Family scope = the official's declaration discloses a related person's stake (relation 'related').

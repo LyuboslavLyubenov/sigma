@@ -21,6 +21,14 @@ export interface RebuildTarget {
   id: string;
   resume?: boolean;
 }
+/** What `monitor()` saw, under its own storage key: the alarm owns `run` and must not race a promise. */
+interface ContainerExit {
+  runId: string;
+  attempt: number;
+  at: number;
+  why: string;
+}
+
 interface DeclarationRun {
   runId: string;
   requestId?: string;
@@ -40,6 +48,10 @@ interface DeclarationRun {
   total?: number;
   progressVersion: number;
   attemptProgressVersion: number;
+  /** Consecutive times the platform had no container to give; separate from `failures` on purpose. */
+  capacityWaits?: number;
+  /** The container answered `/status` at least once during THIS attempt, i.e. an instance really ran. */
+  attemptAlive?: true;
   attemptStage?: string;
   attemptCompleted?: number;
   lastProgressAt: number;
@@ -79,9 +91,32 @@ const rebuildStages = [
   'verify',
 ];
 const MINUTE = 60_000;
+/** How long the alarm waits to hear whether its workflow still exists. */
+const OWNER_LOOKUP_MS = 2_000;
+/** Bounds a promise that has no signal of its own; the loser is simply abandoned. */
+const withTimeout = <T>(work: Promise<T>, ms: number): Promise<T> =>
+  Promise.race([
+    work,
+    new Promise<T>((_, reject) => setTimeout(() => reject(new Error('lookup timed out')), ms)),
+  ]);
 // Restart a stalled attempt; three attempts without advancing the durable high-water mark stop.
 const STALL_MS = 20 * MINUTE;
 const MAX_FAILURES = 3;
+/** Cloudflare has no container to give right now. That is the platform declining, not this run going
+ *  wrong, and it must not spend the failure budget: three of them in a row ended the run after about
+ *  fourteen minutes, and the weekly one then waits until the next Sunday for data nobody fetched. It
+ *  gets its own, far more patient budget instead — the run still ends rather than waiting forever. */
+const NO_CAPACITY = /no container instance that can be provided/i;
+const MAX_CAPACITY_WAITS = 12;
+/** Until a container has run ONCE in this run, a silent attempt could equally be a broken image, so the
+ *  patience is shorter — but not as short as it first was. Three waits ended after about a quarter of an
+ *  hour, and a busy evening killed run after run before any of them got a machine at all, while the cost
+ *  of that patience is only a sleeping alarm: nothing runs, nothing is billed. Giving up too early costs
+ *  a week of data for the Sunday run; waiting costs a few hours. Six waits ride out an evening and still
+ *  surface a bad build inside the same working day. */
+const MAX_COLD_CAPACITY_WAITS = 6;
+const CAPACITY_BACKOFF_MS = 5 * MINUTE;
+const MAX_CAPACITY_BACKOFF_MS = 40 * MINUTE;
 
 /** One coordinator and one container; R2 checkpoints survive every container attempt. */
 export class DeclarationContainer extends DurableObject<DeclarationEnv> {
@@ -177,21 +212,58 @@ export class DeclarationContainer extends DurableObject<DeclarationEnv> {
     const workflow = run.target ? this.env.REBUILD_RUN : this.env.DECLARATIONS_RUN;
     if (!run.requestId || !workflow) return false;
     try {
-      const { status } = await (await workflow.get(run.requestId)).status();
+      // Bounded, because this runs at the head of EVERY alarm and an unanswered lookup used to hold the
+      // whole minute's work behind it — measured at ten seconds a time, once a minute, for a question
+      // whose failure already means „say nothing". Losing the answer costs one more minute of a run
+      // nobody waits for; waiting for it costs every alarm.
+      const { status } = await withTimeout(
+        workflow.get(run.requestId).then((instance) => instance.status()),
+        OWNER_LOOKUP_MS,
+      );
       return ['terminated', 'errored', 'complete'].includes(status);
     } catch {
       return false;
     }
   }
-  private async retry(run: DeclarationRun, reason: string, yielded = false) {
-    const failures = run.progressVersion > run.attemptProgressVersion ? 0 : run.failures + 1;
+  private async retry(run: DeclarationRun, reason: string, yielded = false, stalled = false) {
+    if (NO_CAPACITY.test(reason)) return this.waitForCapacity(run, reason);
+    // A resumed attempt must first REPLAY its way back to the durable high-water mark, and that replay
+    // grows with the corpus: at two hundred thousand documents it costs about ten minutes, while a
+    // container the platform keeps taking away lives five to ten. Measuring only against the durable
+    // mark therefore called every one of those attempts „without progress" and ended the run after
+    // three — the further the run had got, the surer it was to die (seen twice on stage, at 199 804 and
+    // at 208 053 documents).
+    //
+    // So the question is not whether the attempt passed the mark; it is whether the attempt was MOVING
+    // when it was cut short. A stall is the other case and still counts: there the container is alive
+    // and simply not advancing, which is this run failing, and `stalled` says so at the one call site
+    // that knows it. `lastProgressAt` carries the attempt's own advance, replay included.
+    const advanced =
+      !stalled &&
+      (run.progressVersion > run.attemptProgressVersion ||
+        run.lastProgressAt > run.attemptStartedAt);
+    const failures = advanced ? 0 : run.failures + 1;
     if (failures >= MAX_FAILURES) {
       await this.finish(run, 'failed', `${reason}; ${failures} attempts without progress`);
       return;
     }
     await this.ctx.container!.destroy();
     const retryAt = Date.now() + (yielded && !failures ? 1000 : MINUTE * 2 ** failures);
-    await this.ctx.storage.put('run', { ...run, failures, reason, retryAt });
+    await this.ctx.storage.put('run', { ...run, failures, reason, retryAt, capacityWaits: 0 });
+    await this.ctx.storage.setAlarm(retryAt);
+  }
+
+  /** The platform declined to give a container. Wait it out on a separate budget, leaving the failure
+   *  count — and the progress it is measured against — untouched. */
+  private async waitForCapacity(run: DeclarationRun, reason: string, max = MAX_CAPACITY_WAITS) {
+    const waits = (run.capacityWaits ?? 0) + 1;
+    if (waits >= max) {
+      await this.finish(run, 'failed', `${reason}; no container for ${waits} attempts`);
+      return;
+    }
+    const retryAt =
+      Date.now() + Math.min(CAPACITY_BACKOFF_MS * 2 ** (waits - 1), MAX_CAPACITY_BACKOFF_MS);
+    await this.ctx.storage.put('run', { ...run, reason, retryAt, capacityWaits: waits });
     await this.ctx.storage.setAlarm(retryAt);
   }
   override async alarm(): Promise<void> {
@@ -212,6 +284,7 @@ export class DeclarationContainer extends DurableObject<DeclarationEnv> {
       run.attempt++;
       run.attemptStartedAt = Date.now();
       run.attemptProgressVersion = run.progressVersion;
+      delete run.attemptAlive;
       delete run.attemptStage;
       delete run.attemptCompleted;
       delete run.retryAt;
@@ -231,13 +304,55 @@ export class DeclarationContainer extends DurableObject<DeclarationEnv> {
           },
         });
         await container.setInactivityTimeout(10 * MINUTE);
+        // A container that starts and dies seconds later looks exactly like one that never appeared:
+        // both leave `running` false and silence. `monitor()` resolves when the instance exits, so the
+        // exit is recorded under its own key — never by rewriting `run`, which the alarm owns — and the
+        // next alarm can name what happened instead of waiting out a shortage that is not happening.
+        // A broken image did exactly this on dev for hours: its CMD was `true`, so every instance left
+        // within a minute and the whole thing read as „no machine".
+        const { runId, attempt } = run;
+        const noted = (why: string) =>
+          this.ctx.storage.put('exit', { runId, attempt, at: Date.now(), why });
+        void container
+          .monitor()
+          .then(
+            () => noted('exited'),
+            (error: unknown) => noted(error instanceof Error ? error.message : 'exited with error'),
+          )
+          .catch(() => {});
       } catch (error) {
         await this.retry(run, error instanceof Error ? error.message : 'Container start failed');
       }
       return;
     }
     if (!container.running) {
-      await this.retry(run, 'Container interrupted');
+      // The shortage reaches us HERE, not as an exception from start(): the platform accepts the start
+      // and then no instance appears. „Interrupted" is therefore two events wearing one name, and a
+      // silent attempt cannot be told from a container that crashed before its first breath.
+      //
+      // What CAN be told apart is whether this attempt ever spoke. One that answered /status had a real
+      // instance and really broke — ours to count. One that never made a sound gets the patient budget,
+      // but only once this run has already had a working container: before that, a silent attempt is as
+      // likely a broken build, and a bad build must fail in minutes rather than sit out four hours.
+      //
+      // And a third case the two above used to swallow: the instance DID arrive and left on its own.
+      // `monitor()` recorded that, so it is named and counted as a failure of this run — a container
+      // that exits before saying a word is a broken image far more often than a busy region, and it
+      // must surface in minutes with what happened, not after hours of patience.
+      const exit = await this.ctx.storage.get<ContainerExit>('exit');
+      const ours = exit?.runId === run.runId && exit?.attempt === run.attempt;
+      if (run.attemptAlive) await this.retry(run, 'Container interrupted');
+      else if (ours && exit)
+        await this.retry(
+          run,
+          `Container ${exit.why} ${Math.round((exit.at - run.attemptStartedAt) / 1000)}s after it started, without a word`,
+        );
+      else
+        await this.waitForCapacity(
+          run,
+          'Container gave no sign of life',
+          run.progressVersion > 0 ? MAX_CAPACITY_WAITS : MAX_COLD_CAPACITY_WAITS,
+        );
       return;
     }
     let status: ContainerStatus | undefined;
@@ -252,6 +367,9 @@ export class DeclarationContainer extends DurableObject<DeclarationEnv> {
       readError = error instanceof Error ? error.message : 'Container status unavailable';
     }
     if (status) {
+      // An answer is the only proof an instance really ran, so this is where the waiting for one ends.
+      run.attemptAlive = true;
+      run.capacityWaits = 0;
       if (status.runId !== run.runId || status.attempt !== run.attempt) {
         await this.finish(run, 'failed', 'Container run or attempt mismatch');
         return;
@@ -299,9 +417,16 @@ export class DeclarationContainer extends DurableObject<DeclarationEnv> {
         const reason = status.reason || `${status.stage} ${status.state}`;
         // A yield is our own code stopping on purpose, with its work accepted — retry it wherever it
         // happens. Network stages are retried too; a data or audit refusal is final.
+        //
+        // `reindex` belongs with them and was missing: it is a run of `wrangler d1 execute` per chunk of
+        // twenty-five people, so a transient D1 error is the ordinary weather there — and it sits AFTER
+        // publish, where giving up throws away six hours of work whose result is already served. It
+        // happened on stage on 20.09.2026: chunk 017 failed and a completed, published run was recorded
+        // as failed with a stale search index. Each chunk is its own delete+insert, so repeating one is
+        // safe.
         if (
           status.state === 'yielded' ||
-          ['fetch', 'import', 'registry'].includes(status.stage) ||
+          ['fetch', 'import', 'registry', 'reindex'].includes(status.stage) ||
           status.signal
         )
           await this.retry(run, reason, status.state === 'yielded');
@@ -310,7 +435,9 @@ export class DeclarationContainer extends DurableObject<DeclarationEnv> {
       }
     }
     if (Date.now() - Math.max(run.lastProgressAt, run.attemptStartedAt) > STALL_MS) {
-      await this.retry(run, readError);
+      // A live container that has not advanced for twenty minutes is this run failing, whether or not it
+      // advanced earlier in the attempt — the one retry that always spends the budget.
+      await this.retry(run, readError, false, true);
       return;
     }
     await container.setInactivityTimeout(10 * MINUTE);

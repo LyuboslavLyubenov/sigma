@@ -1,4 +1,9 @@
-import { declarationWindow, declaredOfficeYear } from './declaration-source';
+import {
+  declarationWindow,
+  declaredOfficeYear,
+  officeBounds,
+  withinOffice,
+} from './declaration-source';
 import { publicRole } from './registry';
 import { SURFACED_OWNERSHIP, NOT_REDUNDANT_FAMILY } from './related-persons';
 
@@ -57,10 +62,9 @@ export async function getRegistryOfficials(db: D1Database, indent: string): Prom
   try {
     const r = await db
       .prepare(
-        `SELECT pl.person_id FROM person_registry_links pl WHERE pl.registry_indent=? AND EXISTS (
-        SELECT 1 FROM person_registry_links sibling JOIN interest_links il ON il.person_id=sibling.person_id
-        WHERE sibling.registry_indent=pl.registry_indent AND ${SURFACED_OWNERSHIP}
-      ) ORDER BY pl.person_id`,
+        // Every declarant the register identifies as this person, with or without a published stake:
+        // their declarations belong on the page either way.
+        `SELECT pl.person_id FROM person_registry_links pl WHERE pl.registry_indent=? ORDER BY pl.person_id`,
       )
       .bind(indent)
       .all<{ person_id: string }>();
@@ -77,14 +81,22 @@ export function personActivityScope(indent: string | null, ids: string[]) {
   const gate = `${SURFACED_OWNERSHIP} AND ${NOT_REDUNDANT_FAMILY} AND il.person_id IN (${placeholders})`;
   const cte = `WITH scoped AS (
     SELECT DISTINCT r.eik FROM registry_roles r WHERE r.subject_id=?1 AND r.subject_kind='person' AND ${publicRole('r')}
+      -- A role in a public enterprise is a held position; its contracts are not the person's (ADR-0047).
+      AND NOT EXISTS (SELECT 1 FROM bidders pb WHERE pb.id='eik:' || r.eik AND pb.ownership_kind IS NOT NULL)
     UNION SELECT il.eik FROM interest_links il WHERE ${gate}
   ), office_years AS (
     SELECT DISTINCT d.declared_year year FROM declarations d
     WHERE d.person_id IN (${placeholders}) AND ${declaredOfficeYear()}
-  ), activity AS (
+  ), office_bounds AS (${officeBounds(`d.person_id IN (${placeholders})`)}
+  ), activity_base AS (
     SELECT c.id, COALESCE(c.contract_subject, t.title) AS subject, b.name AS company, b.eik_normalized AS eik, a.id AS authority_id, a.name AS authority,
       c.signed_at, c.amount_eur,
       EXISTS (SELECT 1 FROM office_years oy WHERE oy.year=strftime('%Y',c.signed_at)) AS during_office_year,
+      -- The office narrowed to days at its two ends (declaration-source.ts). Both conditions: the year
+      -- must carry a filing and the day must be inside the span.
+      (EXISTS (SELECT 1 FROM office_years oy WHERE oy.year=strftime('%Y',c.signed_at))
+        AND EXISTS (SELECT 1 FROM office_bounds ob
+          WHERE ${withinOffice('ob', 'c.signed_at')})) AS during_office,
       EXISTS (SELECT 1 FROM registry_roles r WHERE r.subject_id=?1 AND r.subject_kind='person'
         AND r.eik=b.eik_normalized AND ${publicRole('r')} AND c.signed_at IS NOT NULL
         AND (r.uncertain_after IS NULL OR date(c.signed_at)<date(r.uncertain_after))
@@ -94,13 +106,19 @@ export function personActivityScope(indent: string | null, ids: string[]) {
             AND date(c.signed_at)<=date(rd.fetched_at))))) AS during_role,
       EXISTS (SELECT 1 FROM interest_links il WHERE ${gate} AND il.eik=b.eik_normalized
         AND c.signed_at IS NOT NULL AND ${declarationWindow('il', 'c.signed_at')}) AS during_declaration,
-      (SELECT COALESCE(SUM(DISTINCT CASE WHEN il.interest_class='private_ownership' THEN 1 ELSE 2 END),0)
+      (SELECT COALESCE(SUM(DISTINCT CASE WHEN il.interest_class='family_ownership' THEN 2
+          WHEN il.relation='manages' THEN 4 ELSE 1 END),0)
         FROM interest_links il WHERE ${gate} AND il.eik=b.eik_normalized AND c.signed_at IS NOT NULL
         AND ${declarationWindow('il', 'c.signed_at')}) AS declaration_basis
     FROM contracts c JOIN bidders b ON b.id=c.bidder_id
     JOIN company_totals cp ON cp.bidder_id='eik:' || b.eik_normalized AND cp.contracts>0
     JOIN tenders t ON t.id=c.tender_id
     JOIN authorities a ON a.id=t.authority_id JOIN scoped s ON s.eik=b.eik_normalized
+  ), activity AS (
+    -- The claim this surface makes needs BOTH: a tie to THIS company and a public office, at the moment
+    -- the contract was signed. Either alone is a weaker, different claim — the office years said nothing
+    -- about the company, the role said nothing about holding office.
+    SELECT *, ((during_role OR during_declaration) AND during_office) AS during_overlap FROM activity_base
   )`;
   return { cte, params };
 }
@@ -111,7 +129,16 @@ export async function getPersonActivity(
   indent: string | null,
   personIds: string[],
   search: URLSearchParams,
-  basis: 'role' | 'declaration' | 'self' | 'family' | 'all' | 'matched' | 'context' = 'all',
+  basis:
+    | 'role'
+    | 'declaration'
+    | 'self'
+    | 'family'
+    | 'all'
+    | 'matched'
+    | 'context'
+    | 'tied'
+    | 'untied' = 'all',
 ): Promise<PersonActivity> {
   const ids = [...new Set(personIds)];
   const requestedBasis = search.get('basis');
@@ -121,6 +148,8 @@ export async function getPersonActivity(
       'all',
       'matched',
       'context',
+      'tied',
+      'untied',
       ...(ids.length ? ['declaration', 'self', 'family'] : []),
     ].includes(requestedBasis ?? '')
   )
@@ -135,11 +164,14 @@ export async function getPersonActivity(
   const basisConditions = {
     role: 'during_role=1',
     declaration: 'during_declaration=1',
-    self: '(declaration_basis & 1)<>0',
+    self: '(declaration_basis & 5)<>0',
     family: '(declaration_basis & 2)<>0',
     all: '1=1',
     matched: 'during_office_year=1',
     context: 'during_office_year=0',
+    // The timeline's split: was the person tied to THIS company AND in office when it was signed?
+    tied: 'during_overlap=1',
+    untied: 'during_overlap=0',
   };
   const params = [...scope.params, filters.company, filters.authority, filters.year];
   // Bind all selected values once, including when a facet excludes its own selection.

@@ -60,6 +60,11 @@ wrangler deploy --config build/server/wrangler.deploy.json      # изпраща
 | `SIGMA_REBUILD_WORKFLOW_NAME` | *(незададена → `sigma-rebuild`)* | `sigma-rebuild-stage` | render → rebuild `[[workflows]] name` |
 | `SIGMA_DECLARATIONS_BUCKET` | *(незададена → `sigma-declarations`)* | `sigma-declarations-stage` | render → `r2_buckets[].bucket_name` и `DECLARATIONS_BUCKET` на etl worker-а |
 | `SUPPRESSION_SALT` / `SUPPRESSION_KEY_VERSION` | prod salt / версия | staging salt / версия | секрети на etl worker-а за контейнера на декларациите |
+
+> Секретите на etl worker-а се поставят в последната стъпка на деплоя, след самото качване. Между двете
+> има кратък прозорец, в който cron тик би заварил worker-а без токен. Ходът тогава не тръгва и в лога
+> стои `Missing declaration setting: …` — шумно и безвредно, нищо не се качва наполовина. Ако видите
+> това веднага след деплой, просто пуснете хода наново.
 | `SIGMA_D1_NAME` | *(незададена → `sigma`)* | активният `sigma-stage-blue` или `sigma-stage-green` | render → `database_name` **+** provisioning/seed скриптовете |
 | `SIGMA_CSV_CACHE_NAME` | *(незададена → `sigma-csv-cache`)* | `sigma-csv-cache-stage` | render → `r2_buckets[].bucket_name` на web worker-а |
 
@@ -360,11 +365,23 @@ worker-а ([ADR-0045](adr/0045-declarations-in-a-cloudflare-container.md)); ко
    `SUPPRESSION_KEY_VERSION` като променлива). Деплоят ги подава на etl worker-а като секрети.
 3. **Деплой.** `wrangler deploy` строи образа от `containers/declarations/Dockerfile` (изпълнителят
    има Docker) и създава Durable Object namespace-а с миграцията `v1-declarations`. Инстанцията е
-   2 ядра, 10 GiB памет и 20 GB диск. Размерът се определя от пълното изграждане, не от седмичния ход:
-   седмичният стига до около 2,3 GB памет и 5,5 GB диск, но изграждането държи едновременно слотовата
-   база, копието ѝ за декларациите и работното копие на етапа с кандидатите — при 12 GB дискът свърши
-   и зареждането се спъна в „database or disk is full". Cloudflare иска поне 3 GiB памет на ядро и диск
-   не повече от двойната памет, затова 20 GB диск изискват 10 GiB памет.
+   **`standard-3`** — 2 ядра, 8 GiB памет, 16 GB диск.
+
+   Защо готов тип, а не собствен размер: Cloudflare предлага шест предварително определени типа и
+   държи подготвени машини на краен брой места. Дотогавашният размер (2 ядра, 10 GiB, 20 GB) не
+   съвпадаше с нито един от тях — беше между `standard-3` и `standard-4` — и отказите „There is no
+   container instance that can be provided to this Durable Object" бяха чести. `standard-3` е
+   едновременно готов тип и **по-малък** от предишния, тоест се намества по-лесно.
+
+   Защо стига: седмичният ход стига до около 2,3 GB памет и 5,5 GB диск, значи 8 GiB и 16 GB са
+   тройно покритие. Пълното изграждане е по-гладно — държи едновременно слотовата база, копието ѝ за
+   декларациите и работното копие на етапа с кандидатите — и при 12 GB дискът свърши с „database or
+   disk is full"; 16 GB са с една трета повече от това. Ако изграждането пак опре до диска, вдигни
+   типа на `standard-4` (4 ядра, 12 GiB, 20 GB) — единственият готов тип с 20 GB — и приеми, че
+   седмичният ход ще чака за място по-често.
+
+   Cloudflare иска поне 3 GiB памет на ядро и диск не повече от двойната памет; `standard-3` спазва
+   и двете (4 GiB на ядро, 16 ≤ 2×8).
 4. **Първи ход на ръка:** `wrangler workflows trigger <SIGMA_DECLARATIONS_WORKFLOW_NAME>` от
    `apps/etl` с `--config wrangler.deploy.toml`. Workflow-ът приключва с реалния резултат на хода;
    `declarations/corpus-v2/accepted.json` в bucket-а е разписката за одитирано и публикувано.

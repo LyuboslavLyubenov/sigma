@@ -20,6 +20,14 @@ function fixture() {
       container.running = false;
     }),
     setInactivityTimeout: vi.fn(),
+    // Resolves when the instance exits; the coordinator attaches to it right after start().
+    exit: null as null | ((why?: unknown) => void),
+    monitor: vi.fn(
+      () =>
+        new Promise<void>((resolve, reject) => {
+          container.exit = (why?: unknown) => (why === undefined ? resolve() : reject(why));
+        }),
+    ),
     interceptOutboundHttp: vi.fn(),
     getTcpPort: () => ({ fetch: async () => Response.json(status) }),
   };
@@ -54,13 +62,15 @@ function fixture() {
   };
   const owner = (status?: string) => {
     env.DECLARATIONS_RUN = (
-      status
-        ? { get: async () => ({ status: async () => ({ status }) }) }
-        : {
-            get: async () => {
-              throw new Error('lookup failed');
-            },
-          }
+      status === 'hang'
+        ? { get: () => new Promise(() => {}) } // a lookup that never answers
+        : status
+          ? { get: async () => ({ status: async () => ({ status }) }) }
+          : {
+              get: async () => {
+                throw new Error('lookup failed');
+              },
+            }
     ) as never;
   };
   return { job, container, run, answer, resume, owner };
@@ -100,16 +110,18 @@ it('bounds automatic retries when containers repeatedly stop without advancing',
   const f = fixture();
   await f.job().startRun();
   await f.job().alarm();
-  for (let attempt = 1; attempt <= 3; attempt++) {
+  for (let attempt = 1; attempt <= 6; attempt++) {
     f.container.running = false;
     await f.job().alarm();
-    if (attempt < 3) await f.resume();
+    if (attempt < 6) await f.resume();
   }
+  // A container that never answers cannot be told from one the platform never provided, so the bound is
+  // the short cold-start one — the run still ends after three silent attempts.
   expect(f.run()).toMatchObject({
     state: 'failed',
-    reason: expect.stringContaining('3 attempts without progress'),
+    reason: expect.stringContaining('Container gave no sign of life'),
   });
-  expect(f.container.start).toHaveBeenCalledTimes(3);
+  expect(f.container.start).toHaveBeenCalledTimes(6);
 });
 
 it('allows useful progress beyond six hours and recovers a stalled attempt', async () => {
@@ -383,4 +395,173 @@ it('retries a yield at any stage, and keeps a data refusal final', async () => {
   f.answer({ state: 'failed', stage: 'audit', completed: 1, reason: 'audit findings' });
   await f.job().alarm();
   expect(f.run()).toMatchObject({ state: 'failed', reason: 'audit findings' });
+});
+
+// „There is no container instance that can be provided" is the platform declining, not this run going
+// wrong. Spending the failure budget on it ended a run after about fourteen minutes, and the weekly one
+// then waits until the next Sunday for data nobody fetched.
+it('waits out a platform capacity refusal instead of spending the failure budget', async () => {
+  const f = fixture();
+  f.container.start.mockImplementation(() => {
+    throw new Error(
+      'There is no container instance that can be provided to this Durable Object, try again later',
+    );
+  });
+  await f.job().startRun('workflow-capacity');
+  for (let i = 0; i < 4; i++) await f.resume();
+  expect(f.run().state).toBe('running');
+  expect(f.run().failures ?? 0).toBe(0); // the failure budget is untouched
+  expect(f.run().capacityWaits).toBe(4);
+  // The wait grows, and far past the two minutes a normal failure would take.
+  expect(f.run().retryAt - Date.now()).toBeGreaterThan(20 * 60_000);
+
+  // An answer from the container is the only proof an instance really ran, so that is where the
+  // waiting ends — not at a `start()` the platform merely accepted.
+  f.container.start.mockImplementation(() => {
+    f.container.running = true;
+  });
+  await f.resume();
+  expect(f.run().capacityWaits).toBe(4); // started, but still silent
+  f.answer({ stage: 'fetch', completed: 5 });
+  await f.job().alarm();
+  expect(f.run().capacityWaits).toBe(0);
+});
+
+// The shortage reaches the coordinator as „Container interrupted", not as an exception from start():
+// the platform accepts the start and then no instance appears. One name, two different events — and
+// counting both as failures ended a run that had already fetched two hundred thousand documents.
+it('tells a container that broke from one that never appeared', async () => {
+  const f = fixture();
+  await f.job().startRun('workflow-silent');
+  // The instance never comes up: `start()` is accepted, nothing answers /status.
+  f.container.start.mockImplementation(() => {});
+  await f.job().alarm(); // attempt 1 is started; nothing ever appears
+  await f.job().alarm(); // silence noticed → first wait
+  await f.resume(); // attempt 2 is started
+  await f.job().alarm(); // second wait
+  expect(f.run().state).toBe('running');
+  expect(f.run().failures ?? 0).toBe(0);
+  expect(f.run().capacityWaits).toBe(2);
+
+  // A container that ANSWERED and then died is this run breaking, and spends the failure budget.
+  const g = fixture();
+  await g.job().startRun('workflow-broke');
+  await g.job().alarm(); // the container starts and is running
+  g.answer({ stage: 'fetch', completed: 10 });
+  await g.job().alarm(); // it answers /status — proof an instance really ran
+  g.container.running = false;
+  await g.job().alarm();
+  // It spoke, so its death is this run's to answer for: the ordinary retry, not the capacity wait.
+  expect(g.run().reason).toBe('Container interrupted');
+  expect(g.run().capacityWaits ?? 0).toBe(0);
+  expect(g.run().retryAt - Date.now()).toBeLessThan(5 * 60_000);
+});
+
+// A run that has never seen a live container could equally be a broken image, so the patience is shorter
+// than for one that has — but long enough to ride out an evening when the platform is busy.
+it('gives up on a run that never gets a container, but not before it has waited', async () => {
+  const f = fixture();
+  await f.job().startRun('workflow-cold');
+  f.container.start.mockImplementation(() => {});
+  await f.job().alarm();
+  for (let i = 0; i < 5; i++) {
+    await f.job().alarm();
+    expect(f.run().state, `изчакване ${i + 1}`).toBe('running');
+    await f.resume();
+  }
+  await f.job().alarm();
+  expect(f.run().state).toBe('failed');
+  expect(f.run().reason).toMatch(/Container gave no sign of life/);
+});
+
+// A resumed attempt must REPLAY its way back to the durable high-water mark before anything it reports
+// counts as progress — and that replay grows with the corpus. Counting only the durable mark called
+// every such attempt „without progress", so the run died after three, the more surely the further it
+// had got. Reproduced live twice on stage, at 199 804 and at 208 053 documents.
+it('counts an attempt that replays below the high-water mark as progress, not as a failure', async () => {
+  const f = fixture();
+  await f.job().startRun('workflow-replay');
+  await f.job().alarm(); // attempt 1 starts
+  f.answer({ stage: 'fetch', completed: 500 });
+  vi.advanceTimersByTime(60_000);
+  await f.job().alarm(); // the durable mark reaches 500
+  expect(f.run().completed).toBe(500);
+
+  f.container.running = false;
+  await f.job().alarm(); // interrupted after real progress: no failure
+  expect(f.run().failures ?? 0).toBe(0);
+
+  await f.resume(); // attempt 2 starts and replays from the beginning of the corpus
+  f.answer({ stage: 'fetch', completed: 100 });
+  vi.advanceTimersByTime(60_000);
+  await f.job().alarm(); // 100 is below 500 — replay, not a new high-water mark
+  expect(f.run().completed, 'the durable mark does not move backwards').toBe(500);
+
+  f.container.running = false;
+  await f.job().alarm();
+  // The attempt did move; the platform took the container away mid-replay. That is not this run failing.
+  expect(f.run().failures ?? 0, 'replay is progress').toBe(0);
+  expect(f.run().state).toBe('running');
+});
+
+// „Never appeared" and „appeared and left in forty seconds" both end with `running` false and silence,
+// and the second one is usually a broken image — on dev a CMD of `true` made every instance leave within
+// a minute, and hours of patient waiting read it as a shortage. `monitor()` tells them apart.
+it('names a container that started and left without a word, instead of waiting for a machine', async () => {
+  const f = fixture();
+  await f.job().startRun('workflow-exit');
+  await f.job().alarm(); // attempt 1 starts and the monitor is attached
+  vi.advanceTimersByTime(40_000);
+  f.container.running = false;
+  f.container.exit?.(new Error('exited with code 0')); // forty seconds in, it leaves on its own
+  await Promise.resolve(); // let the recorded exit land in storage
+  await f.job().alarm();
+
+  expect(f.run().reason).toMatch(/exited with code 0 40s after it started, without a word/);
+  expect(f.run().failures, 'a container that leaves on its own is this run failing').toBe(1);
+  expect(f.run().capacityWaits ?? 0, 'and it is not a shortage').toBe(0);
+});
+
+// The owner lookup runs at the head of EVERY alarm, and unanswered it used to hold the whole minute's
+// work behind it — for a question whose failure already means „say nothing".
+it('gives up on an owner lookup that never answers, instead of holding the alarm', async () => {
+  const f = fixture();
+  await f.job().startRun('workflow-mute-owner');
+  f.owner('hang');
+  const alarm = f.job().alarm();
+  let settled = false;
+  void alarm.then(() => (settled = true));
+  await vi.advanceTimersByTimeAsync(1_000);
+  expect(settled, 'still waiting on the lookup').toBe(false);
+  await vi.advanceTimersByTimeAsync(2_000);
+  await alarm;
+  expect(f.run().attempt, 'the attempt started anyway').toBe(1);
+  expect(f.run().state).toBe('running');
+});
+
+// Reindexing is a run of `wrangler d1 execute` per chunk of twenty-five people, so a transient D1 error
+// is the ordinary weather there — and it sits AFTER publish, where giving up throws away hours of work
+// whose result is already being served. On stage chunk 017 failed and a published run was recorded as
+// failed with a half-built search index.
+it('retries a failed reindex chunk instead of throwing away a published run', async () => {
+  const f = fixture();
+  await f.job().startRun('workflow-reindex');
+  await f.job().alarm();
+  f.answer({
+    state: 'failed',
+    stage: 'reindex',
+    completed: 0,
+    reason: 'Error: Command failed: wrangler d1 execute … reindex-officials-017.sql',
+  });
+  await f.job().alarm();
+  expect(f.run().state, 'a chunk is repeatable: delete+insert of its own rows').toBe('running');
+  expect(f.run().retryAt).toBeGreaterThan(Date.now());
+
+  // An audit refusal at the same point is still final: that one is about the data, not the weather.
+  const g = fixture();
+  await g.job().startRun('workflow-audit');
+  await g.job().alarm();
+  g.answer({ state: 'failed', stage: 'audit', completed: 0, reason: 'audit findings' });
+  await g.job().alarm();
+  expect(g.run().state).toBe('failed');
 });

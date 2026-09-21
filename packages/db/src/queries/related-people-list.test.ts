@@ -1,7 +1,11 @@
 import { DatabaseSync } from 'node:sqlite';
 import { expect, it } from 'vitest';
 import { d1FromSqlite } from '@sigma/test-support';
-import { getRelatedPersonRows, getRelatedPersonHeadline } from './related-people-list';
+import {
+  getRelatedPersonRows,
+  getRelatedPersonHeadline,
+  getRegistryRolePersonRows,
+} from './related-people-list';
 it('groups beyond 1000 source links, preserving identity, distinct pairs and contract unions', async () => {
   const db = new DatabaseSync(':memory:');
   try {
@@ -10,7 +14,8 @@ it('groups beyond 1000 source links, preserving identity, distinct pairs and con
       CREATE TABLE interest_link_evidence(link_key,evidence_kind);
       CREATE TABLE interest_link_observations(link_key,declaration_id,kind,timing,reported_year);
       CREATE TABLE person_registry_links(person_id,registry_indent);
-      CREATE TABLE declarations(person_id,institution,position,declared_year);
+      CREATE TABLE declarations(id,person_id,institution,position,declared_year);
+      CREATE TABLE IF NOT EXISTS declaration_metadata(declaration_id,declaration_type,declared_on,submitted_on);
       CREATE TABLE bidders(id PRIMARY KEY,eik_normalized,name);
       CREATE TABLE contracts(id PRIMARY KEY,bidder_id,tender_id,signed_at,amount_eur);
       CREATE TABLE tenders(id PRIMARY KEY,authority_id);CREATE TABLE authorities(id PRIMARY KEY);
@@ -26,7 +31,8 @@ it('groups beyond 1000 source links, preserving identity, distinct pairs and con
       p.run(`person:${i}`, `Лице ${i}`);
       l.run(`l${i}`, `person:${i}`, '2020', '2020');
       e.run(`l${i}`);
-      db.prepare('INSERT INTO declarations VALUES(?,?,?,?)').run(
+      db.prepare('INSERT INTO declarations VALUES(?,?,?,?,?)').run(
+        `d${i}`,
         `person:${i}`,
         'Институция',
         'Съветник',
@@ -35,7 +41,7 @@ it('groups beyond 1000 source links, preserving identity, distinct pairs and con
     }
     db.exec(`INSERT INTO person_registry_links VALUES('person:0','canonical'),('person:1204','canonical');
       UPDATE interest_links SET first_declared_year='2022',last_declared_year='2022' WHERE person_id='person:1204';
-      INSERT INTO declarations VALUES('person:0','Институция А','Роля','2020'),('person:1204','Институция Б','Друга роля','2022');
+      INSERT INTO declarations VALUES('x0','person:0','Институция А','Роля','2020'),('x1204','person:1204','Институция Б','Друга роля','2022');
       INSERT INTO bidders VALUES
         ('own-small-b','2','Собствена малка'),('own-big-b','3','Собствена голяма'),
         ('rest-big-b','4','Останала голяма'),('rest-small-b','5','Останала малка'),
@@ -54,14 +60,17 @@ it('groups beyond 1000 source links, preserving identity, distinct pairs and con
       INSERT INTO interest_link_evidence VALUES
         ('own-small','document'),('own-big','document'),('rest-big','document'),
         ('rest-small','document'),('window-small','document'),('window-big','document');
-      INSERT INTO declarations VALUES('person:window-small','Институция','Съветник','2020'),('person:window-big','Институция','Съветник','2020');
+      INSERT INTO declarations VALUES('ws','person:window-small','Институция','Съветник','2020'),('wb','person:window-big','Институция','Съветник','2020');
       INSERT INTO contracts VALUES
         ('own-small-c','own-small-b','t','2010-01-01',1),
         ('own-big-c','own-big-b','t','2010-01-01',2),
         ('rest-big-c','rest-big-b','t','2010-01-01',10000),
         ('rest-small-c','rest-small-b','t','2010-01-01',1),
         ('window-small-c','window-small-b','t','2020-01-01',50),
-        ('window-big-c','window-big-b','t','2020-01-01',5000);`);
+        ('window-big-c','window-big-b','t','2020-01-01',5000);
+      ALTER TABLE interest_links ADD COLUMN relation TEXT;
+      UPDATE interest_links SET relation=CASE interest_class WHEN 'family_ownership' THEN 'related' ELSE 'owns' END;
+    `);
     const d1 = d1FromSqlite(db);
     const rows = await getRelatedPersonRows(d1);
     expect(rows).toHaveLength(1210);
@@ -96,22 +105,28 @@ it('groups beyond 1000 source links, preserving identity, distinct pairs and con
       contemporaneousEur: 5350,
     });
     expect(await getRelatedPersonRows(d1, 'unrelated')).toEqual([]);
+    // The authority that DID pay still finds them, and the filter reads its payees once rather than
+    // asking per link: as a correlated EXISTS this cost D1 „exceeded its CPU time limit and was reset"
+    // for any authority above roughly two thousand contracts, which is most of the interesting ones.
+    expect((await getRelatedPersonRows(d1, 'a')).length).toBe(rows.length);
     expect(await getRelatedPersonHeadline(d1, [])).toEqual({
       officialCount: 0,
       linkCount: 0,
       totalEur: 0,
       contemporaneousEur: 0,
     });
-    // An evidenced alias can supply an office year without declaring this company at all.
+    // An evidenced alias can supply an office year without declaring this company at all — but an office
+    // year is only half of it now: the contract must ALSO fall inside a declared stake. The 2021 contract
+    // does not, so the alias's 2021 office year no longer drags it in by itself.
     db.exec(`INSERT INTO persons VALUES('alias','Лице');
       INSERT INTO person_registry_links VALUES('alias','canonical');
-      INSERT INTO declarations VALUES('alias','Институция','Съветник','2021'),('alias','Институция','Съветник','2021');
+      INSERT INTO declarations VALUES('a1','alias','Институция','Съветник','2021'),('a2','alias','Институция','Съветник','2021');
       INSERT INTO contracts VALUES('unknown-amount','b','t','2022-03-01',NULL),('zero-amount','b','t','2022-04-01',0),('unknown-date','b','t',NULL,50);`);
     const withAlias = (await getRelatedPersonRows(d1)).find(
       (r) => r.personIdentity === 'canonical',
     )!;
     expect(withAlias).toMatchObject({
-      contemporaneousValueEur: 600,
+      contemporaneousValueEur: 300, // 2020 (100) + 2022 (200); the 2021 contract is inside no stake
       contractCount: 6,
       contractValueEur: 650,
     });
@@ -125,6 +140,91 @@ it('groups beyond 1000 source links, preserving identity, distinct pairs and con
   }
 });
 
+it('lists people the register records as owners of a winner without a declared stake, counting only what falls inside both the role and the office', async () => {
+  const db = new DatabaseSync(':memory:');
+  const H = 'h'.repeat(64);
+  try {
+    db.exec(`CREATE TABLE persons(id PRIMARY KEY,name);
+      CREATE TABLE person_registry_links(person_id PRIMARY KEY,registry_indent);
+      CREATE TABLE interest_links(person_id,status,interest_class);
+      CREATE TABLE registry_roles(subject_id,subject_kind,role,eik,added_on DEFAULT '2019-01-01',removed_on,uncertain_after);
+      -- An open role counts only up to the last successful read of the partida.
+      CREATE TABLE registry_deeds(eik,outcome,fetched_at);
+      INSERT INTO registry_deeds VALUES('111111111','ok','2026-09-01'),('222222222','ok','2026-09-01'),
+        ('333333333','ok','2026-09-01');
+      CREATE TABLE declarations(id,person_id,institution,position,declared_year);
+      CREATE TABLE declaration_metadata(declaration_id,declaration_type,declared_on,submitted_on);
+      CREATE TABLE declared_interests(declaration_id,entity_raw);
+      CREATE TABLE declaration_companies(declaration_id,eik);
+      CREATE TABLE bidders(id PRIMARY KEY,eik_normalized,name,ownership_kind);
+      CREATE TABLE company_totals(bidder_id,contracts);
+      CREATE TABLE contracts(id PRIMARY KEY,bidder_id,tender_id,signed_at,amount_eur);
+      CREATE TABLE tenders(id PRIMARY KEY,authority_id);
+      INSERT INTO persons VALUES('p','Лице Роля'),('q','Лице Дял'),('r','Лице Без');
+      INSERT INTO person_registry_links VALUES('p','${H}'),('q','${'q'.repeat(64)}');
+      INSERT INTO interest_links VALUES('q','published','private_ownership');
+      -- The partner role at 111111111 ENDS at the start of 2021, so the 2022 contract falls outside it —
+      -- even though 2022 is one of this person's office years. „Стойност в периода" must ask about the
+      -- company, not about whether the person held some office that year.
+      INSERT INTO registry_roles(subject_id,subject_kind,role,eik,removed_on) VALUES('${H}','person','partner','111111111','2021-01-01');
+      INSERT INTO registry_roles(subject_id,subject_kind,role,eik) VALUES('${H}','person','manager','222222222'),
+        ('${'q'.repeat(64)}','person','partner','111111111'),('${'r'.repeat(64)}','person','partner','111111111');
+      INSERT INTO declarations VALUES('d20','p','Община','Кмет','2020'),('d21','p','Община','','2021'),
+        ('d22','p','Община','','2022'),('d18','p','Община','','2018'),('e20','p','Община','Кмет','2020');
+      -- 2020 is blank, 2021 names the company in its own spelling, 2022 is tied to the ЕИК, 2018 precedes
+      -- the ownership, and e20 is not an annual declaration.
+      INSERT INTO declaration_metadata(declaration_id,declaration_type) VALUES('d20','Annualy'),('d21','Annualy'),('d22','Annualy'),('d18','Annualy'),('e20','Entry');
+      INSERT INTO declared_interests VALUES('d21','„Изпълнител“ ЕООД');
+      INSERT INTO declaration_companies VALUES('d22','111111111');
+      INSERT INTO bidders VALUES('b1','111111111','Изпълнител',NULL),('b2','222222222','Държавно','state'),
+        ('b3','333333333','Частно',NULL);
+      INSERT INTO company_totals VALUES('b1',2),('b2',1),('b3',1);
+      INSERT INTO registry_roles(subject_id,subject_kind,role,eik) VALUES('${H}','person','manager','333333333');
+      INSERT INTO tenders VALUES('t','a'),('t2','other');
+      INSERT INTO contracts VALUES('c1','b1','t','2020-05-01',100),('c2','b1','t2','2022-05-01',50),('c3','b2','t','2020-01-01',999),
+        ('c4','b3','t','2019-01-01',7);`);
+    const rows = await getRegistryRolePersonRows(d1FromSqlite(db));
+    expect(rows).toHaveLength(1); // q has a declared stake, r is not a declarant the register identifies
+    expect(rows[0]).toMatchObject({
+      official: 'Лице Роля',
+      personIdentity: H,
+      stakeKind: 'registry',
+      companyCount: 2, // a private company's manager counts; a state enterprise's does not
+      contractCount: 3,
+      contractValueEur: 157,
+      // Only c1 (2020): inside the partner role AND an office year. c2 (2022) is an office year but the
+      // role had ended; c4 (2019) is inside an open role but 2019 is no office year. Each of the two
+      // halves alone would have counted one of them.
+      contemporaneousValueEur: 100,
+      hasContemporaneous: true,
+      companies: [
+        {
+          eik: '111111111',
+          company: 'Изпълнител',
+          self: 0,
+          family: 0,
+          registry: 1,
+          registryRole: 'owner',
+          missingYears: ['2020'],
+        },
+        {
+          eik: '333333333',
+          company: 'Частно',
+          self: 0,
+          family: 0,
+          registry: 1,
+          registryRole: 'manager',
+          missingYears: [],
+        },
+      ],
+    });
+    expect(await getRegistryRolePersonRows(d1FromSqlite(db), 'other')).toHaveLength(1);
+    expect(await getRegistryRolePersonRows(d1FromSqlite(db), 'nobody')).toEqual([]);
+  } finally {
+    db.close();
+  }
+});
+
 it('names the only company of a single-company declarant, and tells own, family and mixed stakes apart', async () => {
   const db = new DatabaseSync(':memory:');
   try {
@@ -133,7 +233,8 @@ it('names the only company of a single-company declarant, and tells own, family 
       CREATE TABLE interest_link_evidence(link_key,evidence_kind);
       CREATE TABLE interest_link_observations(link_key,declaration_id,kind,timing,reported_year);
       CREATE TABLE person_registry_links(person_id,registry_indent);
-      CREATE TABLE declarations(person_id,institution,position,declared_year);
+      CREATE TABLE declarations(id,person_id,institution,position,declared_year);
+      CREATE TABLE IF NOT EXISTS declaration_metadata(declaration_id,declaration_type,declared_on,submitted_on);
       CREATE TABLE bidders(id PRIMARY KEY,eik_normalized,name);
       CREATE TABLE contracts(id PRIMARY KEY,bidder_id,tender_id,signed_at,amount_eur);
       CREATE TABLE tenders(id PRIMARY KEY,authority_id);CREATE TABLE authorities(id PRIMARY KEY);
@@ -146,7 +247,12 @@ it('names the only company of a single-company declarant, and tells own, family 
         ('f','person:family','222222222','published','family_ownership','none','2020','2020'),
         ('m1','person:mixed','111111111','published','private_ownership','none','2020','2020'),
         ('m2','person:mixed','222222222','published','family_ownership','none','2020','2020');
-      INSERT INTO interest_link_evidence SELECT link_key,'document' FROM interest_links;`);
+      INSERT INTO interest_link_evidence SELECT link_key,'document' FROM interest_links;
+      ALTER TABLE interest_links ADD COLUMN relation TEXT;
+      UPDATE interest_links SET relation=CASE interest_class WHEN 'family_ownership' THEN 'related' ELSE 'owns' END;
+      INSERT INTO persons VALUES('person:manager','Управител');
+      INSERT INTO interest_links VALUES('g','person:manager','111111111','published','private_ownership','none','2020','2020','manages');
+      INSERT INTO interest_link_evidence VALUES('g','document');`);
     const rows = await getRelatedPersonRows(d1FromSqlite(db));
     const by = (official: string) => rows.find((r) => r.official === official)!;
     expect(by('Собствен дял')).toMatchObject({
@@ -164,10 +270,69 @@ it('names the only company of a single-company declarant, and tells own, family 
       soleCompany: null,
       contractValueEur: 300,
       companies: [
-        { eik: '222222222', company: 'Втора', self: 0, family: 1 },
-        { eik: '111111111', company: 'Първа', self: 1, family: 0 },
+        { eik: '222222222', company: 'Втора', self: 0, family: 1, manages: 0 },
+        { eik: '111111111', company: 'Първа', self: 1, family: 0, manages: 0 },
       ],
     });
+    // A private company's manager is listed like an owner, and the company says it is a management.
+    expect(by('Управител')).toMatchObject({
+      stakeKind: 'self',
+      companies: [{ eik: '111111111', company: 'Първа', self: 0, family: 0, manages: 1 }],
+    });
+  } finally {
+    db.close();
+  }
+});
+
+// ADR-0047 §3 put management of a private company beside a stake, but the query implemented only
+// `manager` — the ООД's word for it. A company limited by shares is run by its съвет на директорите or
+// управителен съвет, whose members decide whether it bids exactly as an управител does; leaving them out
+// showed the manager of a small ООД and hid the board of a large АД. Oversight seats stay out: they
+// appoint and check, they do not manage.
+it('counts the governing body of a private winner, not the seats that only oversee it', async () => {
+  const db = new DatabaseSync(':memory:');
+  const indent = 'a'.repeat(64);
+  const rolesFor = async (role: string) => {
+    db.exec(`DELETE FROM registry_roles;
+      INSERT INTO registry_roles(subject_id,subject_kind,role,eik) VALUES('${indent}','person','${role}','333333333');`);
+    return await getRegistryRolePersonRows(d1FromSqlite(db));
+  };
+  try {
+    db.exec(`CREATE TABLE persons(id PRIMARY KEY,name);
+      CREATE TABLE person_registry_links(person_id PRIMARY KEY,registry_indent);
+      CREATE TABLE interest_links(person_id,status,interest_class);
+      CREATE TABLE registry_roles(subject_id,subject_kind,role,eik,added_on DEFAULT '2019-01-01',removed_on,uncertain_after);
+      -- An open role counts only up to the last successful read of the partida.
+      CREATE TABLE registry_deeds(eik,outcome,fetched_at);
+      INSERT INTO registry_deeds VALUES('111111111','ok','2026-09-01'),('222222222','ok','2026-09-01'),
+        ('333333333','ok','2026-09-01');
+      CREATE TABLE declarations(id,person_id,institution,position,declared_year);
+      CREATE TABLE declaration_metadata(declaration_id,declaration_type,declared_on,submitted_on);
+      CREATE TABLE declared_interests(declaration_id,entity_raw);
+      CREATE TABLE declaration_companies(declaration_id,eik);
+      CREATE TABLE bidders(id PRIMARY KEY,eik_normalized,name,ownership_kind);
+      CREATE TABLE company_totals(bidder_id,contracts);
+      CREATE TABLE contracts(id PRIMARY KEY,bidder_id,tender_id,signed_at,amount_eur);
+      CREATE TABLE tenders(id PRIMARY KEY,authority_id);
+      INSERT INTO persons VALUES('p','Лице Роля');
+      INSERT INTO person_registry_links VALUES('p','${indent}');
+      INSERT INTO declarations VALUES('d20','p','Община','Кмет','2020');
+      INSERT INTO declaration_metadata(declaration_id,declaration_type) VALUES('d20','Annualy');
+      INSERT INTO bidders VALUES('b3','333333333','Частно',NULL);
+      INSERT INTO company_totals VALUES('b3',1);
+      INSERT INTO tenders VALUES('t','a');
+      INSERT INTO contracts VALUES('c4','b3','t','2020-01-01',7);`);
+
+    for (const role of ['manager', 'board_of_directors', 'management_board', 'governing_body']) {
+      const rows = await rolesFor(role);
+      expect(rows, role).toHaveLength(1);
+      expect(rows[0]?.companies?.[0], role).toMatchObject({
+        eik: '333333333',
+        registryRole: 'manager',
+      });
+    }
+    for (const role of ['supervisory_board', 'controlling_board', 'procurator', 'branch_manager'])
+      expect(await rolesFor(role), role).toEqual([]);
   } finally {
     db.close();
   }

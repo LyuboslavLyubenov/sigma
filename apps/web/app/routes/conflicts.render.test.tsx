@@ -29,14 +29,13 @@ function link(over: Partial<ConflictLink> = {}): ConflictLink {
     officialSlug: 'aXZhbg',
     official: 'Иван Петров',
     institution: 'Община Тест',
-    company: 'ТРЕЙС ГРУП ХОЛД АД',
+    company: 'ТЕСТ ГРУП ХОЛД АД',
     eik: '111',
     relation: 'owns',
     contemporaneous: true,
     ownInstitution: true,
     firstDeclaredYear: '2019',
     lastDeclaredYear: '2023',
-    matchMethod: 'exact_name_key',
     contractCount: 3,
     contractValueEur: 88_000_000,
     contemporaneousContractCount: 2,
@@ -136,8 +135,8 @@ async function renderConflicts(
       },
     },
     { path: '/authorities/:eik', Component: () => null },
-    { path: '/conflicts/official/:slug', Component: () => null },
-    { path: '/conflicts/company/:eik', Component: () => null },
+    { path: '/persons/:id', Component: () => null },
+    { path: '/companies/:eik', Component: () => null },
     { path: '/conflicts/methodology', Component: () => null },
     { path: '/', Component: () => null },
   ]);
@@ -151,15 +150,15 @@ const bodyRows = () => [...container.querySelectorAll('tbody tr')];
 
 describe('/conflicts route — render', () => {
   it('formats the person name only, preserving source data, profile links and company casing', async () => {
-    const source = link({ official: 'ФИДАНКА ДИМИТРОВА ЦИРОВА' });
+    const source = link({ official: 'МАРИНА ПЕТРОВА ТЕСТОВА' });
     await renderConflicts([source]);
-    expect(container.querySelector('tbody a[href="/conflicts/official/aXZhbg"]')?.textContent).toBe(
-      'Фиданка Димитрова Цирова',
+    expect(container.querySelector('tbody a[href="/persons/aXZhbg"]')?.textContent).toBe(
+      'Марина Петрова Тестова',
     );
     expect(container.querySelector('tbody a[href="/companies/111"]')?.textContent).toBe(
-      'ТРЕЙС ГРУП ХОЛД АД',
+      'ТЕСТ ГРУП ХОЛД АД',
     );
-    expect(source.official).toBe('ФИДАНКА ДИМИТРОВА ЦИРОВА');
+    expect(source.official).toBe('МАРИНА ПЕТРОВА ТЕСТОВА');
   });
   it('shows one proven person with their different declared institutions and years', async () => {
     await renderConflicts([
@@ -209,7 +208,7 @@ describe('/conflicts route — render', () => {
   it('offers the filters and all three sorts, and sorts by total value when asked', async () => {
     await renderConflicts([familyLink, link()], null, '/conflicts?sort=total');
     expect(container.querySelector('.filter-rail')).not.toBeNull();
-    for (const label of ['Чий е делът', 'Признаци', 'Институция на лицето'])
+    for (const label of ['Основание', 'Признаци', 'Институция на лицето'])
       expect(text()).toContain(label);
     const names = bodyRows().map((r) => r.querySelector('a')?.textContent);
     expect(names).toEqual(['Иван Петров', 'Кмет Тестов']); // €88M before €250k
@@ -270,7 +269,7 @@ describe('/conflicts route — render', () => {
     // Two winners for the SAME official → one person row, not two. (Distinct ЕИК so it is not a family
     // collapse — genuinely two winners folded by groupByPerson.)
     await renderConflicts([
-      link({ eik: '111', company: 'ТРЕЙС ГРУП ХОЛД АД', linkKey: 'k1' }),
+      link({ eik: '111', company: 'ТЕСТ ГРУП ХОЛД АД', linkKey: 'k1' }),
       link({ eik: '222', company: 'ГБС АД', linkKey: 'k2' }),
     ]);
     const rows = bodyRows();
@@ -363,7 +362,38 @@ describe('/conflicts route — render', () => {
     // Single-winner person → the winner's NAME in the Дружества cell.
     await renderConflicts([link()]);
     const soleCell = bodyRows()[0].querySelector('td[data-label="Дружества"]')!;
-    expect(soleCell.textContent).toContain('ТРЕЙС ГРУП ХОЛД АД');
+    expect(soleCell.textContent).toContain('ТЕСТ ГРУП ХОЛД АД');
+  });
+
+  it('признаци name every fact the row has no other column for, and „—" when it has none', async () => {
+    // Carrying the own-institution chip alone left the column blank on all but a handful of rows, which
+    // reads as broken rather than as „nothing to note". A row with none of the facts says so explicitly.
+    const plain = link({
+      officialSlug: 'plain',
+      official: 'Тихомир Тестов',
+      linkKey: 'p-1',
+      eik: '601',
+      ownInstitution: false,
+      contemporaneousContractCount: 0,
+      contemporaneousValueEur: null,
+    });
+    const inPeriod = link({
+      officialSlug: 'period',
+      official: 'Периодин Тестов',
+      linkKey: 'p-2',
+      eik: '602',
+      ownInstitution: false,
+      contemporaneousContractCount: 2,
+      contemporaneousValueEur: 5_000,
+    });
+    await renderConflicts([plain, inPeriod]);
+    const cell = (name: string) =>
+      bodyRows()
+        .find((r) => r.textContent?.includes(name))!
+        .querySelector('td[data-label="Признаци"]')!;
+    expect(cell('Тихомир Тестов').textContent).toBe('—');
+    expect(cell('Тихомир Тестов').querySelectorAll('.chip').length).toBe(0);
+    expect(cell('Периодин Тестов').textContent).toContain('в декларирания период');
   });
 
   it('признаци stay visible and a flag sourced from a SECOND link still renders', async () => {
@@ -421,7 +451,7 @@ describe('/conflicts route — render', () => {
     // Title column carries the name+institution and links to the person page.
     const titleCell = row.querySelector('td.cell-title')!;
     const link = titleCell.querySelector('a')!;
-    expect(link.getAttribute('href')).toContain('/conflicts/official/');
+    expect(link.getAttribute('href')).toContain('/persons/');
     // …and the identity-free „свързано лице" qualifier, so a family-ONLY row is not read as an own stake
     // (niki #312 MEDIUM 1). It states the kind, never who the relative is or the relationship type.
     expect(titleCell.textContent).not.toContain('свързано лице');
@@ -461,4 +491,24 @@ describe('/conflicts route — render', () => {
       container.querySelector('.pagination, nav[aria-label], [class*="pagination"]'),
     ).not.toBeNull();
   });
+});
+
+// The register behind the declarations is the Сметна палата's (чл. 75 ЗСП); КПКОНПИ was closed in 2023.
+it('names the register that actually publishes the declarations', async () => {
+  await renderConflicts([link()]);
+  expect(text()).toContain('Публичния регистър на Сметната палата');
+  expect(text()).not.toContain('КПКОНПИ');
+});
+
+// The registry-only bucket holds exactly the people who did NOT name the company in their declaration,
+// so the standing title („декларирали дял") stated the opposite of what the filtered list shows.
+it('titles the registry-only list by what it actually holds', async () => {
+  await renderConflicts([link()]);
+  expect(container.querySelector('h1')?.textContent).toContain('декларирали');
+
+  await renderConflicts([link()], null, '/conflicts?stake=registry');
+  const heading = container.querySelector('h1')?.textContent ?? '';
+  expect(heading).toContain('Търговския регистър');
+  expect(heading).not.toContain('декларирали');
+  expect(text()).toContain('без това дружество да е посочено в декларацията им');
 });

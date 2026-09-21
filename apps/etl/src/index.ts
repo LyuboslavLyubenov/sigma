@@ -477,7 +477,10 @@ interface RegistryResult {
   changeDays: number;
   changed: number;
   queuedNew: number;
+  /** Partidas actually read. A batch can end early on a rate limit, so this is NOT the number tried. */
   read: number;
+  /** Partidas taken off the queue — what the budget and the drained-queue test are counted in. */
+  attempted: number;
   absent: number;
   roles: number;
   publicOwned?: number;
@@ -504,6 +507,7 @@ export class RegistryWorkflow extends WorkflowEntrypoint<Env, RegistryParams> {
       changed: 0,
       queuedNew: 0,
       read: 0,
+      attempted: 0,
       absent: 0,
       roles: 0,
     };
@@ -604,14 +608,15 @@ export class RegistryWorkflow extends WorkflowEntrypoint<Env, RegistryParams> {
       result.queuedNew = await fenced('queue-new-winners', async () =>
         queueNewWinners(this.env.DB, new Date().toISOString(), maxDeeds),
       );
-      for (let b = 0; result.read < maxDeeds; b++) {
+      for (let b = 0; result.attempted < maxDeeds; b++) {
         const batch = await fenced(`deeds:${b}`, async () => {
           const eiks = await nextQueued(
             this.env.DB,
-            Math.min(REGISTRY_BATCH, maxDeeds - result.read),
+            Math.min(REGISTRY_BATCH, maxDeeds - result.attempted),
           );
           let absent = 0;
           let roles = 0;
+          let read = 0;
           for (const [i, eik] of eiks.entries()) {
             if (i > 0 && pace > 0) await new Promise((r) => setTimeout(r, pace));
             try {
@@ -620,6 +625,7 @@ export class RegistryWorkflow extends WorkflowEntrypoint<Env, RegistryParams> {
                 throw new NonRetryableError('registry lease lost after XML read');
               if (lookup.status === 'absent') absent++;
               roles += (await storeDeed(this.env.DB, eik, lookup, new Date().toISOString())).roles;
+              read++;
             } catch (error) {
               if (error instanceof NonRetryableError) throw error;
               if (!(await renewRegistryLease(this.env.DB, holder)))
@@ -644,12 +650,16 @@ export class RegistryWorkflow extends WorkflowEntrypoint<Env, RegistryParams> {
               );
             }
           }
-          return { read: eiks.length, absent, roles };
+          // A rate limit breaks out of the loop above with partidas still unread: counting the whole
+          // batch as read overstated the run in the logs, which is what the operator reads to decide
+          // whether a pass covered the register.
+          return { read, attempted: eiks.length, absent, roles };
         });
         result.read += batch.read;
+        result.attempted += batch.attempted;
         result.absent += batch.absent;
         result.roles += batch.roles;
-        if (batch.read < REGISTRY_BATCH) break;
+        if (batch.attempted < REGISTRY_BATCH) break;
       }
       result.publicOwned = await fenced('derive-public-ownership', () =>
         derivePublicOwnership(this.env.DB),
@@ -677,8 +687,16 @@ export class RegistryWorkflow extends WorkflowEntrypoint<Env, RegistryParams> {
 }
 
 /** The cron that starts the declarations run: Sundays 03:00 UTC — a bad run then leaves the working
- * week to fix it, and the register is quiet at the weekend. */
-export const DECLARATIONS_CRON = '0 3 * * 0';
+ * week to fix it, and the register is quiet at the weekend. Sunday is `7`: the Cloudflare API refuses
+ * `0 3 * * 0` outright, and `scheduled` compares this string to the one the platform sends. */
+export const DECLARATIONS_CRON = '0 3 * * 7';
+
+/** How long an operator-started run may be waited on before the workflow gives up with its OWN error.
+ * A Workflow instance is capped at 1,024 steps on the free plan, and each poll costs two (a sleep and a
+ * status read); an unbounded loop therefore ends in an opaque platform failure after about forty hours
+ * instead of a sentence naming what happened. The container has its own stall and failure limits — this
+ * is the outer bound, not the primary one. */
+const MAX_POLLS = { declarations: 288, rebuild: 288 } as const; // 24 h at 5 min, 48 h at 10 min
 
 /** An operator-started declarations run that waits for the container's outcome, so `wrangler workflows
  * trigger` reports the real result instead of a fire-and-forget. The cron starts the same run. */
@@ -692,7 +710,7 @@ export class DeclarationsWorkflow extends WorkflowEntrypoint<Env> {
         .startRun(event.instanceId);
       return { runId, state };
     });
-    for (let poll = 0; ; poll++) {
+    for (let poll = 0; poll < MAX_POLLS.declarations; poll++) {
       await step.sleep(`wait-${poll}`, '5 minutes');
       const run = await step.do(`status-${poll}`, async () => {
         const current = await declarations.getByName('declarations').getRun();
@@ -718,6 +736,9 @@ export class DeclarationsWorkflow extends WorkflowEntrypoint<Env> {
       if (run.state !== 'running')
         throw new NonRetryableError(`Declaration run ${run.state}: ${run.reason ?? ''}`);
     }
+    throw new NonRetryableError(
+      `Declaration run still running after ${MAX_POLLS.declarations * 5} minutes; stop it or raise the bound`,
+    );
   }
 }
 
@@ -744,7 +765,7 @@ export class RebuildWorkflow extends WorkflowEntrypoint<
       });
       return { runId, state };
     });
-    for (let poll = 0; ; poll++) {
+    for (let poll = 0; poll < MAX_POLLS.rebuild; poll++) {
       await step.sleep(`wait-${poll}`, '10 minutes');
       const run = await step.do(`status-${poll}`, async () => {
         const current = await containers.getByName('rebuild').getRun();
@@ -764,6 +785,9 @@ export class RebuildWorkflow extends WorkflowEntrypoint<
       if (run.state !== 'running')
         throw new NonRetryableError(`Rebuild ${run.state}: ${run.reason ?? ''}`);
     }
+    throw new NonRetryableError(
+      `Rebuild still running after ${MAX_POLLS.rebuild * 10} minutes; stop it or raise the bound`,
+    );
   }
 }
 

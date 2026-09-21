@@ -1,4 +1,8 @@
 import {
+  getPersonName,
+  getPersonNamedBy,
+  getPersonRelatives,
+  getPersonSourceNames,
   getOfficialConflicts,
   getPersonTimeline,
   getPersonDeclarations,
@@ -8,6 +12,7 @@ import {
 } from '@sigma/db';
 import { layoutTies } from './tie-layout.server';
 import type { PersonDeclaration } from '@sigma/api-contract';
+import { personNameKey } from '@sigma/shared';
 
 export async function loadPersonProfile(
   db: D1Database,
@@ -20,7 +25,6 @@ export async function loadPersonProfile(
   const cases = (
     await Promise.all(officialIds.map((id) => getOfficialConflicts(db, id, { contracts: false })))
   ).filter((x) => x != null);
-  if (!person && !cases.length) return null;
   const links = cases.flatMap((c) => c.links);
 
   const declarations = [
@@ -35,6 +39,11 @@ export async function loadPersonProfile(
       (b.submittedOn ?? b.declaredOn ?? '').localeCompare(a.submittedOn ?? a.declaredOn ?? '') ||
       a.id.localeCompare(b.id),
   );
+  // A declarant is a public office-holder by the same act that makes a registered person public, so
+  // their own filings are enough for a profile: the offices they declared, when, and the timeline of
+  // them. Before, a person with neither a Trade Register entry nor a published company link fell to a
+  // bare list of documents — 34,086 of the 34,947 people on the site, or 97.5% of them.
+  if (!person && !cases.length && !declarations.length) return null;
   const activity = await getPersonActivity(db, indent ?? null, officialIds, search, 'all');
   // The company facet includes the full eligible set, even when filters match no contracts.
   const companyEiks = new Set(activity.companies.map((c) => c.eik));
@@ -42,9 +51,24 @@ export async function loadPersonProfile(
   const declaredActivity = officialIds.length
     ? await getPersonActivity(db, indent ?? null, officialIds, new URLSearchParams(), 'declaration')
     : null;
+  const name =
+    person?.name ??
+    cases[0]?.official ??
+    (officialIds.length ? ((await getPersonName(db, officialIds[0]!)) ?? '') : '');
+  // Declarations of one person filed under a changed or differently written name.
+  const aliases = (await getPersonSourceNames(db, officialIds)).filter(
+    (n) => personNameKey(n) !== personNameKey(name),
+  );
+  const [relatives, namedBy] = await Promise.all([
+    getPersonRelatives(db, officialIds),
+    indent ? getPersonNamedBy(db, indent) : Promise.resolve([]),
+  ]);
   return {
     person,
-    name: person?.name ?? cases[0]!.official,
+    name,
+    aliases,
+    relatives,
+    namedBy,
     links: links.filter((l) => companyEiks.has(l.eik)),
     timeline: {
       ...timeline,

@@ -1,6 +1,38 @@
+import { readFileSync } from 'node:fs';
+import { dirname, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { expect, it, vi } from 'vitest';
 import worker, { DeclarationsWorkflow, DECLARATIONS_CRON, RebuildWorkflow } from './index';
 import type { Env } from './index';
+
+// `scheduled` tells the weekly tick from the six-hourly one by comparing the platform's cron string to
+// DECLARATIONS_CRON, so the deployed schedule and the constant must be the same string — and Sunday must
+// be spelled `7`, because the Cloudflare API rejects `0 3 * * 0` and the deploy dies at the trigger step.
+it('deploys the very cron the weekly branch compares against', () => {
+  const toml = readFileSync(
+    resolve(dirname(fileURLToPath(import.meta.url)), '../wrangler.toml'),
+    'utf8',
+  );
+  const crons = /^crons = \[(.*)\]$/m.exec(toml)?.[1];
+  expect(crons, 'no crons in wrangler.toml').toBeDefined();
+  expect(crons).toContain(`"${DECLARATIONS_CRON}"`);
+  expect(DECLARATIONS_CRON.split(' ').at(-1), 'Sunday is 7 for the Cloudflare API').not.toBe('0');
+});
+
+// dev and the deployed Workers must run the same compatibility date: the declarations container reaches
+// the corpus through `exports` from `cloudflare:workers`, which simply is not there on an older date. A
+// dev config that runs ahead proves a feature the deployed Worker cannot use — staging died on exactly
+// that, with the corpus entrypoint reported as "not a function".
+it('runs dev and the deployed Worker on one compatibility date', () => {
+  const dir = dirname(fileURLToPath(import.meta.url));
+  const toml = readFileSync(resolve(dir, '../wrangler.toml'), 'utf8');
+  const dev = readFileSync(resolve(dir, '../wrangler.dev.jsonc'), 'utf8');
+  const deployed = /^compatibility_date = "([\d-]+)"$/m.exec(toml)?.[1];
+  const local = /"compatibility_date":\s*"([\d-]+)"/.exec(dev)?.[1];
+  expect(deployed, 'no compatibility_date in wrangler.toml').toBeDefined();
+  expect(local, 'no compatibility_date in wrangler.dev.jsonc').toBeDefined();
+  expect(deployed).toBe(local);
+});
 
 it('starts one declarations run and waits for the container outcome', async () => {
   const startRun = vi.fn(async () => ({ runId: 'run-1', state: 'running' }));
@@ -128,4 +160,25 @@ it('starts a rebuild of the named idle slot and waits for it', async () => {
   await expect(run({ targetName: 'sigma-idle', targetId: 'x' })).rejects.toThrow(
     'Rebuild failed: counts',
   );
+});
+
+// A Workflow instance is capped at 1,024 steps on the free plan and each poll costs two, so an
+// unbounded wait ends in an opaque platform failure rather than a sentence naming what happened.
+it('gives up on a run that never finishes, with its own message', async () => {
+  const startRun = vi.fn(async () => ({ runId: 'run-1', state: 'running' }));
+  const getRun = vi.fn(async () => ({ runId: 'run-1', state: 'running' }));
+  const sleeps: string[] = [];
+  const step = {
+    do: async (_name: string, fn: () => unknown) => fn(),
+    sleep: async (name: string) => void sleeps.push(name),
+  };
+  await expect(
+    new DeclarationsWorkflow(
+      {} as never,
+      {
+        DECLARATIONS: { getByName: () => ({ startRun, getRun }) },
+      } as never,
+    ).run({ instanceId: 'workflow-1' } as never, step as never),
+  ).rejects.toThrow(/still running after 1440 minutes/);
+  expect(sleeps.length).toBe(288); // 24 hours at five minutes, well under the step cap
 });

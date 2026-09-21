@@ -24,7 +24,7 @@ import type {
   CompanyTieNode,
   RegistryRoleKind,
 } from '@sigma/api-contract';
-import { cleanName } from '@sigma/shared';
+import { cleanName, registryCompanyName } from '@sigma/shared';
 import { SURFACED_OWNERSHIP, NOT_REDUNDANT_FAMILY } from './related-persons';
 import { authoritySlug, companySlug, personSlug } from './identity';
 import {
@@ -112,6 +112,11 @@ const FUNDERS_SQL = `
   FROM flow_pairs fp WHERE fp.bidder_id = ?1
   ORDER BY fp.won_eur DESC LIMIT ?2`;
 
+const REGISTRY_CENTER_SQL = `
+  SELECT 'eik:' || eik AS id, COALESCE(name, eik) AS name, legal_form, 'company' AS kind,
+         NULL AS won_eur, 0 AS conflicts
+  FROM registry_deeds WHERE eik = ?1 AND outcome = 'ok'`;
+
 const CENTER_SQL = `
   SELECT b.id, b.name, b.kind, ct.won_eur,
          ${surfacedConflicts('b.id')} AS conflicts
@@ -159,12 +164,14 @@ const CENTRE_PEOPLE_SQL = `
   FROM registry_roles r LEFT JOIN registry_persons p ON p.indent = r.subject_id
   WHERE r.eik = ?1 AND ${joinablePerson('r')} AND ${publicRole('r')}`;
 
-// The other companies in the corpus those people hold a role in.
+// The other PRIVATE companies in the corpus those people hold a role in. A seat at a public enterprise is a
+// held position, not a company of the person (ADR-0047 §2): drawing it here would hang the enterprise's
+// contracts on whoever sits on its board.
 const viaPeopleSql = (n: number) => `
   SELECT r.subject_id AS indent, r.role, r.removed_on, b.id AS bidder_id, b.name, b.kind, ct.won_eur,
          ${surfacedConflicts('b.id')} AS conflicts
   FROM registry_roles r
-  JOIN bidders b ON b.id = 'eik:' || r.eik
+  JOIN bidders b ON b.id = 'eik:' || r.eik AND b.ownership_kind IS NULL
   LEFT JOIN company_totals ct ON ct.bidder_id = b.id
   WHERE r.subject_id IN (${Array.from({ length: n }, (_, i) => `?${i + 2}`).join(', ')})
     AND r.subject_kind = 'person' AND r.eik <> ?1 AND ${publicRole('r')}`;
@@ -346,14 +353,29 @@ export async function getCompanyTies(
     db.prepare(CENTER_SQL).bind(bidderId).first<CenterRow>(),
     db.prepare(TIES_SQL).bind(bidderId).all<LinkRow>(),
   ]);
-  if (!centerRes) return { center: null, nodes: [], edges: [], omitted: 0 };
+  // A company known only from its partida is still the centre of its people.
+  const partida = partidaEik(bidderId);
+  const centerRow =
+    centerRes ??
+    (partida
+      ? await registryRead(
+          () =>
+            db
+              .prepare(REGISTRY_CENTER_SQL)
+              .bind(partida)
+              .first<CenterRow & { legal_form: string | null }>()
+              .then((r) => r && { ...r, name: registryCompanyName(r.name, r.legal_form) }),
+          null,
+        )
+      : null);
+  if (!centerRow) return { center: null, nodes: [], edges: [], omitted: 0 };
 
   const center = companyNode(
-    centerRes.id,
-    centerRes.name,
-    centerRes.kind,
-    centerRes.won_eur,
-    centerRes.conflicts,
+    centerRow.id,
+    centerRow.name,
+    centerRow.kind,
+    centerRow.won_eur,
+    centerRow.conflicts,
     0,
   );
 
@@ -405,15 +427,15 @@ export async function getCompanyTies(
       directed: r.directed === 1,
       weightEur: r.weight_eur,
       occurrences: r.occurrences,
-      href: r.kind === 'declared_stake' ? `/conflicts/company/${companySlug(bidderId)}` : null,
+      href:
+        r.kind === 'declared_stake' ? `/companies/${companySlug(bidderId)}#declared-people` : null,
     });
   }
   let omitted = Math.max(0, ranked.length - drawn.size);
 
   // The Trade Register layer: the centre's people, the companies they reach, its owners and holdings.
-  const eik = partidaEik(bidderId);
-  if (eik) {
-    const layer = await registryRead(() => companyRegistryLayer(db, bidderId, eik, seen), null);
+  if (partida) {
+    const layer = await registryRead(() => companyRegistryLayer(db, bidderId, partida, seen), null);
     if (layer) {
       for (const n of layer.nodes) seen.add(n.id);
       nodes.push(...layer.nodes);
@@ -614,7 +636,10 @@ export async function getAuthoritySupplierTies(
       directed: r.directed === 1,
       weightEur: r.weight_eur,
       occurrences: r.occurrences,
-      href: r.kind === 'declared_stake' ? `/conflicts/company/${companySlug(r.a_bidder_id)}` : null,
+      href:
+        r.kind === 'declared_stake'
+          ? `/companies/${companySlug(r.a_bidder_id)}#declared-people`
+          : null,
     });
   }
 
@@ -657,7 +682,7 @@ async function attachDeclaredPeople(db: D1Database, edges: CompanyTieEdge[]) {
           .all<{ id: string; name: string }>();
         edge.people = rows.results.map((p) => ({
           ...p,
-          href: `/conflicts/official/${personSlug(p.id)}`,
+          href: `/persons/${personSlug(p.id)}`,
         }));
         edge.occurrences = edge.people.length;
       }),

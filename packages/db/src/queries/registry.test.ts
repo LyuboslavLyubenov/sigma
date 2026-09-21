@@ -16,6 +16,7 @@ import { registryPersonIdFromSlug, registryPersonSlug } from './identity';
 import {
   PUBLIC_ROLES,
   getCompanyPeople,
+  getRegistryCompany,
   getRegistryPerson,
   orderRoles,
   partidaEik,
@@ -58,6 +59,9 @@ INSERT INTO registry_deeds (eik, name, legal_form, status, outcome, fetched_at) 
   ('222222222', 'БЕТА АД', 'AD', 'N', 'ok', '2026-09-09T03:00:00Z'),
   ('333333333', 'ГАМА ЕООД', 'EOOD', 'N', 'ok', '2026-09-08T03:00:00Z'),
   ('555555555', NULL, NULL, NULL, 'absent', '2026-09-08T03:00:00Z');
+INSERT INTO persons (id, name) VALUES ('person:identity:anna', 'Анна Петрова');
+INSERT INTO person_registry_links (person_id, registry_indent, evidence_link_key, evidence_entry_number, matched_at)
+  VALUES ('person:identity:anna', '${ANNA}', 'person-entity:anna', '', '2026-09-10');
 INSERT INTO registry_persons (indent, name, indent_type) VALUES
   ('${ANNA}', 'АННА ПЕТРОВА', 'EGN'),
   ('${BORIS}', 'БОРИС ИВАНОВ', 'EGN'),
@@ -154,7 +158,9 @@ describe('getCompanyPeople', () => {
       href: `/persons/${ANNA}`,
       eik: null,
       country: null,
+      official: true, // she filed declarations here
     });
+    expect(by('БОРИС ИВАНОВ').official).toBeUndefined();
     expect(by('ХОЛДИНГ АД')).toMatchObject({
       kind: 'entity',
       href: '/companies/444444444',
@@ -272,6 +278,39 @@ describe('getRegistryPerson', () => {
       current: true,
       weightEur: 0,
     });
+  });
+
+  // ADR-0047 §2: a seat on the board of a public enterprise is a held position. The register's fact stays in
+  // the roles table, named by its ownership — but the enterprise is not one of the person's companies, so
+  // it is neither drawn around them nor counted, and its contracts are not hung on whoever sits on its board.
+  it('keeps a seat at a public enterprise in the roles, marked, but out of the graph and the totals', async () => {
+    const db = served();
+    open!.exec(`
+      INSERT INTO bidders (id,name,bulstat,eik_normalized,eik_valid,kind,ownership_kind) VALUES
+        ('eik:977777777','ФОНД ТЕСТ ЕАД','977777777','977777777',1,'company','state');
+      INSERT INTO company_totals (bidder_id,name,kind,won_eur,contracts,authorities) VALUES
+        ('eik:977777777','ФОНД ТЕСТ ЕАД','company',25000000,40,12);
+      INSERT INTO registry_deeds (eik,name,legal_form,outcome,fetched_at) VALUES
+        ('977777777','ФОНД ТЕСТ ЕАД','EAD','ok','2026-09-10T03:00:00Z');
+      INSERT INTO registry_roles (eik,sub_uic,field_ident,role,subject_kind,subject_id,subject_name,entry_number,added_on,removed_on)
+        VALUES ('977777777','0000','00120','board_of_directors','person','${ANNA}','АННА ПЕТРОВА','f1','2022-02-02','2022-08-30');
+    `);
+    const p = (await getRegistryPerson(db, ANNA))!;
+    const seat = p.roles.find((r) => r.company.eik === '977777777')!;
+    expect(seat).toMatchObject({
+      company: { name: 'ФОНД ТЕСТ ЕАД', ownershipKind: 'state' },
+      role: 'board_of_directors',
+      removedOn: '2022-08-30',
+    });
+    expect(
+      p.roles.filter((r) => r.company.eik !== '977777777').every((r) => !r.company.ownershipKind),
+    ).toBe(true);
+    expect(p.network.nodes.map((n) => n.id)).not.toContain('eik:977777777');
+    expect(p.network.edges.map((e) => e.to)).not.toContain('eik:977777777');
+    expect(p).toMatchObject({ companies: 2, wonEur: 6000 });
+    // Nor does the seat reach the enterprise from a company the person also holds a role in.
+    const net = await getCompanyTies(db, 'eik:111111111');
+    expect(net.nodes.map((n) => n.id)).not.toContain('eik:977777777');
   });
 
   it('marks the roles that ended', async () => {
@@ -513,5 +552,36 @@ describe('holders and roles at the edges of the register', () => {
     await expect(registryRead(() => Promise.reject('D1_ERROR: boom'), 'empty')).rejects.toBe(
       'D1_ERROR: boom',
     );
+  });
+});
+
+describe('getRegistryCompany', () => {
+  it('reads a partida the site has, with its legal form and a standing liquidator', async () => {
+    const sqlite = new DatabaseSync(':memory:');
+    try {
+      sqlite.exec(`CREATE TABLE registry_deeds(eik,name,legal_form,seat_settlement,outcome,fetched_at);
+        CREATE TABLE registry_roles(eik,role,removed_on,uncertain_after);
+        INSERT INTO registry_deeds VALUES('300000003','САМО РЕГИСТЪР','OOD','гр. Русе','ok','2026-09-01T10:00:00Z'),
+          ('300000004',NULL,NULL,NULL,'absent','2026-09-01T10:00:00Z'),
+          ('300000005','ИВА','ET',NULL,'ok','2026-09-01T10:00:00Z');
+        INSERT INTO registry_roles VALUES('300000003','liquidator',NULL,NULL),('300000005','liquidator','2020-01-01',NULL);`);
+      const db = d1FromSqlite(sqlite);
+      expect(await getRegistryCompany(db, 'eik:300000003')).toEqual({
+        eik: '300000003',
+        name: 'САМО РЕГИСТЪР ООД',
+        legalForm: 'OOD',
+        seat: 'гр. Русе',
+        inLiquidation: true,
+        asOf: '2026-09-01',
+      });
+      expect(await getRegistryCompany(db, 'eik:300000005')).toMatchObject({
+        name: 'ЕТ ИВА',
+        inLiquidation: false,
+      });
+      expect(await getRegistryCompany(db, 'eik:300000004')).toBeNull();
+      expect(await getRegistryCompany(db, 'name:ФИРМА')).toBeNull();
+    } finally {
+      sqlite.close();
+    }
   });
 });
